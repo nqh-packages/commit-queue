@@ -9,8 +9,8 @@
   },
   "scripts": {
     "install:local": "node scripts/install-local.js",
-    "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage"
+    "test": "node --test test/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage test/*.test.js"
   },
   "engines": {
     "node": ">=22"

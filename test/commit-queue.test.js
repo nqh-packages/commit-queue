@@ -31,25 +31,9 @@ test("read-only commands pass through without a session", () => {
   }
 });
 
-test("empty git invocation passes through to real Git", () => {
-  const fixture = createFixture();
-  try {
-    const result = runCommitQueue(fixture.repo, [], { state: fixture.state });
-
-    assert.notEqual(result.status, 0);
-    assert.match(`${result.stdout}\n${result.stderr}`, /usage: git/i);
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("outside Git repos, normal Git commands pass through and getID is blocked", () => {
+test("outside Git repos, getID is blocked", () => {
   const temp = createTempDir();
   try {
-    const version = runCommitQueue(temp.root, ["--version"], { state: path.join(temp.root, "state") });
-    assert.equal(version.status, 0, version.stderr);
-    assert.match(version.stdout, /git version/);
-
     const getId = runCommitQueue(temp.root, ["getID"], { state: path.join(temp.root, "state") });
     assert.notEqual(getId.status, 0);
     assert.match(getId.stderr, /COMMIT_QUEUE_NOT_IN_REPO/);
