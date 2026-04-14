@@ -597,7 +597,7 @@ test("invalid opt-out config fails open to protected mode", () => {
   }
 });
 
-test("COMMIT_QUEUE_BYPASS forwards to real Git", () => {
+test("COMMIT_QUEUE_BYPASS is ignored by protected git", () => {
   const fixture = createFixture();
   try {
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
@@ -607,8 +607,9 @@ test("COMMIT_QUEUE_BYPASS forwards to real Git", () => {
       env: { COMMIT_QUEUE_BYPASS: "1" },
     });
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout, /src\/a\.ts/);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED|COMMIT_QUEUE_BROAD_ADD_BLOCKED/);
+    assert.equal(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "");
   } finally {
     fixture.cleanup();
   }

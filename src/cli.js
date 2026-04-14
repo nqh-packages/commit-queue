@@ -70,11 +70,6 @@ const HARD_STALE_LOCK_MS = 30 * 60 * 1000;
 export function runProtectedGit(args) {
   const realGit = resolveRealGit();
 
-  if (process.env.COMMIT_QUEUE_BYPASS === "1") {
-    exitWithResult(runGit(realGit, args, { stdio: "pipe" }));
-    return;
-  }
-
   const invocation = parseInvocation(args);
   const command = invocation.command;
   if (!command) {
