@@ -7,7 +7,7 @@ Tiny Git safety wrapper for people running multiple AI coding agents in the same
 | What is this? | A protected `git` shim plus a raw human `hgit` command |
 | Why use it? | Agents stop committing over each other |
 | Why it works | Each agent session gets isolated staging and commits serialize |
-| Status | Local v1 scaffold with behavior tests |
+| Status | Local v1 |
 
 Agent flow:
 
@@ -17,7 +17,7 @@ git add src/file.ts
 git commit -m "fix: update file"
 ```
 
-Human flow:
+Human flow, from an interactive terminal:
 
 ```bash
 hgit status
@@ -64,7 +64,7 @@ Now Agent A's commit may contain Agent B's work.
 | Agents commit at the same time | Commits run through a per-repo lock |
 | A stale lock remains | Lock owner metadata lets the wrapper recover it automatically |
 | A file changes after staging | Commit blocks until the agent stages again |
-| Humans need escape | `hgit` calls real Git |
+| Humans need escape | `hgit` calls real Git only from an interactive terminal |
 
 ## Why It Is Good
 
@@ -74,7 +74,7 @@ Now Agent A's commit may contain Agent B's work.
 | No worktree requirement | No extra pruning, trimming, folder cleanup |
 | No daemon | Nothing to keep alive |
 | No per-tool hook setup | Claude Code, Codex, and shell agents hit the same wrapper |
-| Raw human escape | `hgit` stays available when the operator needs real Git |
+| Raw human escape | `hgit` stays available for interactive operators |
 
 ## How To Use It
 
@@ -120,7 +120,15 @@ Blocked in v1:
 git add .
 git add -A
 git add -u
+git add dir/
+git add "*.ts"
+git add --pathspec-from-file paths.txt
 git commit -a
+git commit --no-verify
+git commit --amend
+git commit path/to/file
+git branch new-name
+git push --force
 git checkout
 git switch
 git reset

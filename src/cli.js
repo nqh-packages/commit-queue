@@ -106,7 +106,63 @@ export function runProtectedGit(args) {
     return;
   }
 
-  if (isPassthroughCommand(command, args)) {
+  if (hasGlobalConfigOverride(invocation.globalArgs) && !isReadInspectionCommand(command, invocation.commandArgs)) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE",
+      title: "Unsafe Git config override blocked",
+      detail: "Inline Git config overrides are blocked for protected mutating commands.",
+      context: { command, global_args: invocation.globalArgs, repo },
+      suggestions: ["Run the protected command without inline `-c` or `--config-env` overrides."],
+      retriable: true,
+    }));
+    return;
+  }
+
+  if (command === "config") {
+    if (isConfigReadOnly(invocation.commandArgs)) {
+      exitWithResult(runGit(realGit, args, { stdio: "pipe" }));
+      return;
+    }
+
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_CONFIG_MUTATION_BLOCKED",
+      title: "Git config mutation blocked",
+      detail: "Git config writes are blocked in protected mode.",
+      context: { command, args: invocation.commandArgs, repo },
+      suggestions: ["Use read-only config queries, or ask the human if Git config must change."],
+      retriable: false,
+    }));
+    return;
+  }
+
+  if (command === "branch" && !isBranchPassthrough(invocation.commandArgs)) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_REF_MUTATION_BLOCKED",
+      title: "Reference mutation blocked",
+      detail: "Git branch mutation is blocked in protected mode.",
+      context: { command, args: invocation.commandArgs, repo },
+      suggestions: ["Use read-only branch commands, or ask the human if a branch must be changed."],
+      retriable: false,
+    }));
+    return;
+  }
+
+  if (command === "push" && hasUnsafePush(invocation.commandArgs)) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_UNSAFE_PUSH_BLOCKED",
+      title: "Unsafe push blocked",
+      detail: "Destructive push options are blocked in protected mode.",
+      context: { command, args: invocation.commandArgs, repo },
+      suggestions: [
+        "Use a normal `git push` without force, delete, mirror, prune, or force refspecs.",
+        "If remote history must be rewritten, stop and ask the human.",
+      ],
+      retriable: false,
+    }));
+    return;
+  }
+
+  if (isPassthroughCommand(command, invocation.commandArgs)) {
     exitWithResult(runGit(realGit, args, { stdio: "pipe" }));
     return;
   }
@@ -172,9 +228,10 @@ function createSession(realGit, repo) {
   const state = statePaths();
   ensureStateDirs(state);
 
-  const id = `cq_${timestampId()}_${randomBytes(3).toString("hex")}`;
+  const id = `cq_${timestampId()}_${randomBytes(12).toString("hex")}`;
   const indexPath = sessionIndexPath(id);
   const head = currentHead(realGit, repo);
+  const headRef = currentHeadRef(realGit, repo);
 
   if (head) {
     const readTree = runGit(realGit, ["read-tree", head], {
@@ -191,6 +248,7 @@ function createSession(realGit, repo) {
     id,
     repo,
     head,
+    headRef,
     indexPath,
     createdAt: new Date().toISOString(),
     stagedPaths: {},
@@ -233,6 +291,19 @@ function handleAdd(realGit, repo, args) {
     return;
   }
 
+  const unsafePathspec = firstUnsafeAddPathspec(realGit, repo, pathArgs);
+  if (unsafePathspec) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_BROAD_ADD_BLOCKED",
+      title: "Broad add blocked",
+      detail: "Protected mode requires explicit file paths. Directory, glob, and multi-file pathspecs are blocked.",
+      context: { command: "add", args, repo, session: session.id, unsafe_pathspec: unsafePathspec },
+      suggestions: ["Use `git add path/to/file` for each file you intend to commit."],
+      retriable: true,
+    }));
+    return;
+  }
+
   const add = runGit(realGit, ["add", ...args], {
     cwd: repo,
     env: { GIT_INDEX_FILE: session.indexPath },
@@ -261,8 +332,9 @@ function handleAdd(realGit, repo, args) {
 function handleCommit(realGit, repo, args) {
   const session = requireSession("commit", repo);
   if (!session) return;
+  const policy = inspectCommitArgs(args);
 
-  if (args.includes("-a") || args.includes("--all")) {
+  if (policy.commitAll) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_COMMIT_ALL_BLOCKED",
       title: "Commit all blocked",
@@ -274,11 +346,11 @@ function handleCommit(realGit, repo, args) {
     return;
   }
 
-  if (args.includes("-n") || args.includes("--no-verify")) {
+  if (policy.noVerify) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_NO_VERIFY_BLOCKED",
       title: "No-verify commit blocked",
-      detail: "`git commit --no-verify` skips Git hooks and is blocked in protected mode.",
+      detail: "Git hook bypass options are blocked in protected mode.",
       context: { command: "commit", args, repo, session: session.id },
       suggestions: [
         "Commit without `--no-verify` so repository hooks can run.",
@@ -290,7 +362,7 @@ function handleCommit(realGit, repo, args) {
     return;
   }
 
-  if (args.includes("--amend")) {
+  if (policy.amend) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_AMEND_BLOCKED",
       title: "Amend blocked",
@@ -301,6 +373,18 @@ function handleCommit(realGit, repo, args) {
         "If the latest commit message must be rewritten, stop and ask the human.",
       ],
       retriable: false,
+    }));
+    return;
+  }
+
+  if (policy.pathspecs.length > 0) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED",
+      title: "Commit pathspec blocked",
+      detail: "Commit pathspecs can bypass protected staging and are blocked.",
+      context: { command: "commit", args, repo, session: session.id, pathspecs: policy.pathspecs },
+      suggestions: ["Use `git add path/to/file`, then `git commit -m \"message\"` without path arguments."],
+      retriable: true,
     }));
     return;
   }
@@ -327,6 +411,28 @@ function handleCommit(realGit, repo, args) {
         },
         suggestions: [
           "Run `eval \"$(git getID)\"` to start a fresh session from the current HEAD.",
+          "Stage the intended files again before committing.",
+        ],
+        retriable: true,
+      }));
+      return;
+    }
+
+    const headRef = currentHeadRef(realGit, repo);
+    if (headRef !== freshSession.headRef) {
+      fail(errorPayload({
+        code: "COMMIT_QUEUE_HEAD_REF_DRIFT",
+        title: "Repository HEAD branch changed",
+        detail: "The symbolic HEAD target changed after this session started.",
+        context: {
+          command: "commit",
+          repo,
+          session: freshSession.id,
+          expected_head_ref: freshSession.headRef,
+          actual_head_ref: headRef,
+        },
+        suggestions: [
+          "Run `eval \"$(git getID)\"` from the current branch to start a fresh session.",
           "Stage the intended files again before committing.",
         ],
         retriable: true,
@@ -489,8 +595,11 @@ function hasBroadAdd(args) {
     arg === "--all" ||
     arg === "-u" ||
     arg === "--update" ||
+    arg === "--pathspec-from-file" ||
+    arg === "--pathspec-file-nul" ||
     arg.startsWith("-A") ||
     arg.startsWith("-u") ||
+    arg.startsWith("--pathspec-from-file=") ||
     isBroadPathspec(arg)
   ));
 }
@@ -508,12 +617,228 @@ function explicitPathArgs(args) {
   return args.filter((arg) => arg !== "--" && !arg.startsWith("-"));
 }
 
+function firstUnsafeAddPathspec(realGit, repo, pathArgs) {
+  for (const pathArg of pathArgs) {
+    if (hasPathspecWildcard(pathArg)) {
+      return { path: pathArg, reason: "wildcard" };
+    }
+
+    const absolutePath = path.isAbsolute(pathArg) ? pathArg : path.join(repo, pathArg);
+    if (existsSync(absolutePath) && statSync(absolutePath).isDirectory()) {
+      return { path: pathArg, reason: "directory" };
+    }
+
+    const matches = matchingAddPaths(realGit, repo, pathArg);
+    if (matches.length > 1) {
+      return { path: pathArg, reason: "matches_multiple_paths", matches };
+    }
+  }
+
+  return null;
+}
+
+function hasPathspecWildcard(pathspec) {
+  const withoutMagic = pathspec.replace(/^:\([^)]*\)/, "");
+  return /[*?\[]/.test(withoutMagic);
+}
+
+function matchingAddPaths(realGit, repo, pathspec) {
+  const result = runGit(realGit, [
+    "ls-files",
+    "--cached",
+    "--others",
+    "--deleted",
+    "--exclude-standard",
+    "--",
+    pathspec,
+  ], { cwd: repo });
+  if (result.status !== 0) return [];
+  return result.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
 function isPassthroughCommand(command, args) {
   if (PASSTHROUGH_COMMANDS.has(command)) return true;
-  if (command === "branch") {
-    return !args.some((arg) => ["-d", "-D", "-m", "-M", "--delete", "--move", "--set-upstream-to"].includes(arg));
-  }
+  if (command === "branch") return isBranchPassthrough(args);
   return false;
+}
+
+function isBranchPassthrough(args) {
+  if (args.length === 0) return true;
+
+  const hasListMode = args.some((arg) => ["--list", "-l", "--all", "-a", "--remotes", "-r"].includes(arg));
+  for (const arg of args) {
+    if (isBranchMutationArg(arg)) return false;
+    if (!arg.startsWith("-") && !hasListMode) return false;
+  }
+
+  return true;
+}
+
+function isBranchMutationArg(arg) {
+  if ([
+    "--delete",
+    "--move",
+    "--copy",
+    "--set-upstream-to",
+    "--unset-upstream",
+    "--edit-description",
+    "--track",
+    "--set-upstream",
+    "--create-reflog",
+  ].includes(arg)) {
+    return true;
+  }
+
+  if (arg.startsWith("--set-upstream-to=")) return true;
+  return /^-[^-].*[dDmMcC]/.test(arg);
+}
+
+function hasUnsafePush(args) {
+  return args.some((arg) => (
+    arg === "--force" ||
+    arg === "-f" ||
+    arg === "--delete" ||
+    arg === "-d" ||
+    arg === "--no-verify" ||
+    arg === "--all" ||
+    arg === "--tags" ||
+    arg === "--mirror" ||
+    arg === "--prune" ||
+    arg.startsWith("--force-with-lease") ||
+    arg.startsWith("--force-if-includes") ||
+    arg.startsWith("+") ||
+    arg.startsWith(":")
+  ));
+}
+
+function hasGlobalConfigOverride(globalArgs) {
+  return globalArgs.some((arg) => (
+    arg === "-c" ||
+    arg.startsWith("-c") ||
+    arg === "--config-env" ||
+    arg.startsWith("--config-env=")
+  ));
+}
+
+function isReadInspectionCommand(command, args) {
+  if (command === "config") return isConfigReadOnly(args);
+  if (command === "push") return false;
+  return isPassthroughCommand(command, args);
+}
+
+function isConfigReadOnly(args) {
+  if (args.length === 1 && !args[0].startsWith("-")) return true;
+  return args.some((arg) => [
+    "--get",
+    "--get-all",
+    "--get-regexp",
+    "--get-urlmatch",
+    "--list",
+    "-l",
+  ].includes(arg));
+}
+
+function inspectCommitArgs(args) {
+  const policy = {
+    commitAll: false,
+    noVerify: false,
+    amend: false,
+    pathspecs: [],
+  };
+  let consumeNext = false;
+  let afterSeparator = false;
+
+  for (const arg of args) {
+    if (consumeNext) {
+      consumeNext = false;
+      continue;
+    }
+
+    if (afterSeparator) {
+      policy.pathspecs.push(arg);
+      continue;
+    }
+
+    if (arg === "--") {
+      afterSeparator = true;
+      continue;
+    }
+
+    if (arg === "--all") {
+      policy.commitAll = true;
+      continue;
+    }
+
+    if (arg === "--no-verify") {
+      policy.noVerify = true;
+      continue;
+    }
+
+    if (arg === "--no-post-rewrite") {
+      policy.noVerify = true;
+      continue;
+    }
+
+    if (arg === "--amend") {
+      policy.amend = true;
+      continue;
+    }
+
+    if (["--only", "--include", "--pathspec-file-nul"].includes(arg) || arg.startsWith("--pathspec-from-file")) {
+      policy.pathspecs.push(arg);
+      continue;
+    }
+
+    if (commitLongOptionConsumesNext(arg)) {
+      consumeNext = true;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      continue;
+    }
+
+    if (/^-[^-]/.test(arg)) {
+      inspectCommitShortOptions(arg, policy);
+      if (commitShortOptionConsumesNext(arg)) {
+        consumeNext = true;
+      }
+      continue;
+    }
+
+    policy.pathspecs.push(arg);
+  }
+
+  return policy;
+}
+
+function commitLongOptionConsumesNext(arg) {
+  if (arg.includes("=")) return false;
+  return [
+    "--message",
+    "--file",
+    "--reuse-message",
+    "--reedit-message",
+    "--fixup",
+    "--squash",
+    "--author",
+    "--date",
+    "--cleanup",
+    "--trailer",
+    "--template",
+  ].includes(arg);
+}
+
+function inspectCommitShortOptions(arg, policy) {
+  const cluster = arg.slice(1);
+  if (cluster.includes("a")) policy.commitAll = true;
+  if (cluster.includes("n")) policy.noVerify = true;
+  if (cluster.includes("o") || cluster.includes("i")) policy.pathspecs.push(arg);
+}
+
+function commitShortOptionConsumesNext(arg) {
+  if (["-m", "-F", "-C", "-c"].includes(arg)) return true;
+  return /^-[A-Za-z]*[mFCc]$/.test(arg);
 }
 
 function parseInvocation(args) {
@@ -581,6 +906,12 @@ function isRepoOptedOut(repo) {
 
 function currentHead(realGit, repo) {
   const result = runGit(realGit, ["rev-parse", "--verify", "HEAD"], { cwd: repo });
+  if (result.status !== 0) return null;
+  return result.stdout.trim();
+}
+
+function currentHeadRef(realGit, repo) {
+  const result = runGit(realGit, ["symbolic-ref", "-q", "HEAD"], { cwd: repo });
   if (result.status !== 0) return null;
   return result.stdout.trim();
 }

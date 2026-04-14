@@ -154,7 +154,9 @@ This keeps the protocol explicit. I do not want hidden magic where the tool sile
 | `git diff` | Pass through |
 | `git log` | Pass through |
 | `git show` | Pass through |
+| `git ls-files` | Pass through |
 | `git branch` | Pass through for read-only forms |
+| `git push` | Pass through for non-destructive forms |
 | `git --version` | Pass through |
 | `git help` | Pass through |
 
@@ -172,7 +174,15 @@ This keeps the protocol explicit. I do not want hidden magic where the tool sile
 | `git add .` | It can grab other agents' files |
 | `git add -A` | It can grab unrelated edits and deletes |
 | `git add -u` | It can grab unrelated deletions |
+| `git add dir/` | It can grab many files under one broad path |
+| `git add "*.ts"` | It can expand into unrelated files |
+| `git add --pathspec-from-file` | It hides the actual staged paths from the command line |
 | `git commit -a` | It bypasses explicit staging |
+| `git commit --no-verify` | It skips repository hooks |
+| `git commit --amend` | It rewrites history |
+| `git commit path/to/file` | It can bypass the private session index |
+| `git branch new-name` | It mutates refs |
+| `git push --force` | It rewrites remote history |
 | `git checkout` | It mutates the shared working tree |
 | `git switch` | It mutates the shared working tree |
 | `git reset` | It can destroy or unstage someone else's work |
@@ -282,7 +292,7 @@ hgit add .
 hgit commit -m "manual commit"
 ```
 
-`hgit` exists because humans need a door out. Agents do not need to be taught where that door is.
+`hgit` exists because humans need a door out. It is for interactive terminals; non-interactive agent shells should be blocked. Agents do not need to be taught where that door is.
 
 ## Architecture
 
@@ -313,7 +323,7 @@ shell command
 | Component | Responsibility |
 |-----------|----------------|
 | `bin/git` | Protected shim entrypoint |
-| `bin/hgit` | Raw Git passthrough for humans |
+| `bin/hgit` | Raw Git passthrough for interactive humans |
 | Command classifier | Separates read-only, protected, blocked, and internal commands |
 | Repo resolver | Finds Git root and opt-out config |
 | Session manager | Creates and loads `COMMIT_QUEUE_ID` |
@@ -401,10 +411,12 @@ Agent-facing errors must not mention `hgit` or bypass commands.
 | Agent runs `eval "$(git getID)"` | Export `COMMIT_QUEUE_ID` and `COMMIT_QUEUE_REPO` |
 | Agent runs `git add src/a.ts` with session | Stage into session index |
 | Agent runs `git add .` with session | Block |
+| Agent runs `git add dir/` with session | Block |
 | Agent runs `git commit -m "fix: a"` with clean session | Commit through repo lock |
+| Agent runs `git commit src/a.ts -m "fix: a"` | Block |
 | Staged file changed after add | Block with `COMMIT_QUEUE_FILE_DRIFT` |
 | `HEAD` changed unexpectedly | Block with `COMMIT_QUEUE_HEAD_DRIFT` |
-| Human runs `hgit commit -m "..."` | Raw Git passthrough |
+| Human runs `hgit commit -m "..."` in an interactive terminal | Raw Git passthrough |
 | Repo has `{ "enabled": false }` | Raw Git passthrough |
 
 ## Testing Standard
@@ -428,7 +440,7 @@ Tests use real temporary Git repositories. No fake Git behavior unless the unit 
 | Drift detection | Commit fails if staged file changed after add |
 | `HEAD` drift | Commit fails if parent changed unexpectedly |
 | Opt-out | Repo config disables wrapper behavior |
-| `hgit` | Raw Git command reaches real Git |
+| Human passthrough | Non-interactive shells are blocked |
 | Error structure | Blocked command includes code and suggestions |
 
 ## Implementation Constraints

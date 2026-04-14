@@ -10,7 +10,7 @@ Build `commit-queue`: a small local Git safety shim for AI-agent-heavy developme
 | 2 | Block unsafe agent mutations before they touch shared Git state |
 | 3 | Keep v1 small: no daemon, no server, no filesystem watcher |
 | 4 | Make errors actionable for AI agents |
-| 5 | Keep human escape via `hgit` |
+| 5 | Keep human escape interactive and out of agent-facing output |
 
 ## Product Contract
 
@@ -22,7 +22,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 |------|----------|
 | Name | `commit-queue` |
 | Protected command | `git` |
-| Human/raw command | `hgit` |
+| Human/raw command | Not documented for agents |
 | Default scope | Enabled for all Git repos |
 | Opt-out file | `.commit-queue.json` with `{ "enabled": false }` |
 | Session command | `eval "$(git getID)"` |
@@ -37,7 +37,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Rule | Reason |
 |------|--------|
 | Do not replace `/usr/bin/git` | User-level PATH shim only |
-| Do not mention `hgit` in agent-facing errors | Bypass is for humans/operators |
+| Do not mention the human bypass command in agent-facing errors | Bypass is for humans/operators |
 | Do not allow `git add .` in v1 | Broad add can capture unrelated changes |
 | Do not allow `git commit -a` in v1 | It bypasses explicit staging |
 | Do not implement a daemon in v1 | Adds lifecycle and debugging cost |
@@ -56,7 +56,9 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git diff` | Pass through |
 | `git log` | Pass through |
 | `git show` | Pass through |
+| `git ls-files` | Pass through |
 | `git branch` | Pass through only for read-only forms |
+| `git push` | Pass through only for non-destructive forms |
 | `git --version` | Pass through |
 | `git help` | Pass through |
 
@@ -75,7 +77,15 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git add .` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
 | `git add -A` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
 | `git add -u` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
+| `git add dir/` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
+| `git add "*.ts"` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
+| `git add --pathspec-from-file` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
 | `git commit -a` | `COMMIT_QUEUE_COMMIT_ALL_BLOCKED` |
+| `git commit --no-verify` | `COMMIT_QUEUE_NO_VERIFY_BLOCKED` |
+| `git commit --amend` | `COMMIT_QUEUE_AMEND_BLOCKED` |
+| `git commit path/to/file` | `COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED` |
+| `git branch new-name` | `COMMIT_QUEUE_REF_MUTATION_BLOCKED` |
+| `git push --force` | `COMMIT_QUEUE_UNSAFE_PUSH_BLOCKED` |
 | `git checkout` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
 | `git switch` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
 | `git reset` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
@@ -119,7 +129,7 @@ Use structured, agent-recoverable errors.
 
 | Do Not Include | Reason |
 |----------------|--------|
-| `hgit` bypass instructions | Agents should not learn bypass route |
+| Human bypass instructions | Agents should not learn bypass route |
 | Raw stack traces in normal output | Too noisy for agent recovery |
 | Vague text like `Something went wrong` | Not self-healing |
 | Secrets or full environment dumps | Security risk |
@@ -150,12 +160,13 @@ Use TDD.
 | Add without session | Blocked |
 | `git getID` | Prints valid shell exports |
 | Explicit add | Uses session index |
-| Broad add | Blocked |
+| Broad add, directory add, glob add | Blocked |
 | Commit after clean add | Creates commit |
+| Commit pathspec | Blocked before Git can bypass session index |
 | File drift after add | Blocked |
 | `HEAD` drift | Blocked |
 | Opt-out config | Calls real Git |
-| `hgit` | Calls real Git |
+| Human passthrough | Blocked in non-interactive agent shells |
 | Agent error | Includes code and suggestions |
 
 ## Implementation Guidelines
@@ -230,6 +241,6 @@ Before claiming implementation work is complete:
 | Drift test exists | Yes |
 | Broad add test exists | Yes |
 | Session-required test exists | Yes |
-| `hgit` bypass test exists | Yes |
+| Human passthrough non-interactive block test exists | Yes |
 | Error output is structured | Yes |
 | No runtime dependencies added silently | Yes |

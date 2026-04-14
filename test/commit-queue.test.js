@@ -22,12 +22,14 @@ test("read-only commands pass through without a session", () => {
     const log = runCommitQueue(fixture.repo, ["log", "-1", "--pretty=%s"], { state: fixture.state });
     const branch = runCommitQueue(fixture.repo, ["branch", "--show-current"], { state: fixture.state });
     const lsFiles = runCommitQueue(fixture.repo, ["ls-files", "README.md"], { state: fixture.state });
+    const config = runCommitQueue(fixture.repo, ["config", "--get", "user.email"], { state: fixture.state });
 
     assert.equal(status.status, 0, status.stderr);
     assert.equal(status.stdout.trim(), "");
     assert.equal(log.stdout.trim(), "test: initial");
     assert.equal(branch.stdout.trim(), "main");
     assert.equal(lsFiles.stdout.trim(), "README.md");
+    assert.equal(config.stdout.trim(), "commit-queue@example.test");
   } finally {
     fixture.cleanup();
   }
@@ -138,8 +140,17 @@ test("broad add commands are blocked even with a session", () => {
   try {
     const env = activateSession(fixture.repo, fixture.state);
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
 
-    for (const args of [["add", "."], ["add", "-A"], ["add", "-u"], ["add", ":(glob)**"]]) {
+    for (const args of [
+      ["add", "."],
+      ["add", "-A"],
+      ["add", "-u"],
+      ["add", ":(glob)**"],
+      ["add", "--pathspec-from-file", "paths.txt"],
+      ["add", "src"],
+      ["add", "src/*.ts"],
+    ]) {
       const result = runCommitQueue(fixture.repo, args, {
         state: fixture.state,
         env,
@@ -197,6 +208,19 @@ test("blocked shared-tree and history commands fail before Git mutates", () => {
   }
 });
 
+test("branch creation is blocked", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["branch", "new-branch"], { state: fixture.state });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_REF_MUTATION_BLOCKED/);
+    assert.equal(runRealGit(fixture.repo, ["branch", "--list", "new-branch"]).stdout.trim(), "");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("push passes through without a session", () => {
   const fixture = createFixture();
   const remote = createTempDir();
@@ -211,6 +235,53 @@ test("push passes through without a session", () => {
   } finally {
     fixture.cleanup();
     remote.cleanup();
+  }
+});
+
+test("destructive push forms are blocked", () => {
+  const fixture = createFixture();
+  const remote = createTempDir();
+  try {
+    assert.equal(runRealGit(remote.root, ["init", "--bare"]).status, 0);
+    assert.equal(runRealGit(fixture.repo, ["remote", "add", "origin", remote.root]).status, 0);
+
+    for (const args of [
+      ["push", "--force", "origin", "main"],
+      ["push", "-f", "origin", "main"],
+      ["push", "--force-with-lease", "origin", "main"],
+      ["push", "--no-verify", "origin", "main"],
+      ["push", "--all", "origin"],
+      ["push", "--tags", "origin"],
+      ["push", "--delete", "origin", "main"],
+      ["push", "origin", "+main"],
+      ["push", "origin", ":main"],
+    ]) {
+      const result = runCommitQueue(fixture.repo, args, { state: fixture.state });
+      assert.notEqual(result.status, 0, `${args.join(" ")} should fail`);
+      assert.match(result.stderr, /COMMIT_QUEUE_UNSAFE_PUSH_BLOCKED/);
+    }
+  } finally {
+    fixture.cleanup();
+    remote.cleanup();
+  }
+});
+
+test("config writes are blocked while config reads pass through", () => {
+  const fixture = createFixture();
+  try {
+    const read = runCommitQueue(fixture.repo, ["config", "user.email"], { state: fixture.state });
+    const write = runCommitQueue(fixture.repo, ["config", "alias.co", "checkout"], { state: fixture.state });
+
+    assert.equal(read.status, 0, read.stderr);
+    assert.equal(read.stdout.trim(), "commit-queue@example.test");
+    assert.notEqual(write.status, 0);
+    assert.match(write.stderr, /COMMIT_QUEUE_CONFIG_MUTATION_BLOCKED/);
+    assert.equal(
+      runRealGit(fixture.repo, ["config", "--get", "alias.co"], { allowFailure: true }).stdout.trim(),
+      "",
+    );
+  } finally {
+    fixture.cleanup();
   }
 });
 
@@ -354,6 +425,49 @@ test("commit --no-verify is blocked with a session", () => {
   }
 });
 
+test("commit --no-post-rewrite is blocked as a hook bypass", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "--no-post-rewrite", "-m", "test: skip hook"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_NO_VERIFY_BLOCKED/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit with hook-path config override is blocked", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const result = runCommitQueue(fixture.repo, [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "commit",
+      "-m",
+      "test: bypass hooks",
+    ], { state: fixture.state, env });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("commit --amend is blocked as a history rewrite", () => {
   const fixture = createFixture();
   try {
@@ -369,6 +483,33 @@ test("commit --amend is blocked as a history rewrite", () => {
     assert.match(result.stderr, /follow-up commit/);
     assert.match(result.stderr, /ask the human/);
     assert.doesNotMatch(result.stderr, /Use `git add path\/to\/file`/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit pathspecs cannot bypass the session index", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+    runRealGit(fixture.repo, ["add", "src/a.ts", "src/b.ts"]);
+    runRealGit(fixture.repo, ["commit", "-m", "test: track src files"]);
+
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 2;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 2;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/b.ts"], { state: fixture.state, env }).status, 0);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "src/a.ts", "-m", "test: pathspec"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: track src files");
+    assert.match(runRealGit(fixture.repo, ["status", "--short"]).stdout, /src\/a\.ts/);
   } finally {
     fixture.cleanup();
   }
@@ -589,6 +730,29 @@ test("commit blocks when HEAD moved after session creation", () => {
 
     assert.notEqual(commit.status, 0);
     assert.match(commit.stderr, /COMMIT_QUEUE_HEAD_DRIFT/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit blocks when symbolic HEAD changed after session creation", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    runRealGit(fixture.repo, ["checkout", "-b", "same-head"]);
+
+    const commit = runCommitQueue(fixture.repo, ["commit", "-m", "test: add a"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(commit.status, 0);
+    assert.match(commit.stderr, /COMMIT_QUEUE_HEAD_REF_DRIFT/);
+    assert.equal(runRealGit(fixture.repo, ["branch", "--show-current"]).stdout.trim(), "same-head");
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
   } finally {
     fixture.cleanup();
   }
