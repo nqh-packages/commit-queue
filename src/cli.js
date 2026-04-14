@@ -257,6 +257,22 @@ function handleCommit(realGit, repo, args) {
     return;
   }
 
+  if (args.includes("-n") || args.includes("--no-verify")) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_NO_VERIFY_BLOCKED",
+      title: "No-verify commit blocked",
+      detail: "`git commit --no-verify` skips Git hooks and is blocked in protected mode.",
+      context: { command: "commit", args, repo, session: session.id },
+      suggestions: [
+        "Commit without `--no-verify` so repository hooks can run.",
+        "If a hook fails, fix the failing check and retry the commit.",
+        "If the hook is a false positive, stop and ask the human.",
+      ],
+      retriable: true,
+    }));
+    return;
+  }
+
   withRepoLock(repo, () => {
     const freshSession = loadSession(session.id);
     if (!freshSession) {

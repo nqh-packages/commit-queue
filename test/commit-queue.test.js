@@ -323,6 +323,34 @@ test("commit -a is blocked with a session", () => {
   }
 });
 
+test("commit --no-verify is blocked with a session", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    for (const args of [
+      ["commit", "--no-verify", "-m", "test: skip hooks"],
+      ["commit", "-n", "-m", "test: skip hooks"],
+    ]) {
+      const result = runCommitQueue(fixture.repo, args, {
+        state: fixture.state,
+        env,
+      });
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /COMMIT_QUEUE_NO_VERIFY_BLOCKED/);
+      assert.match(result.stderr, /fix the failing check/);
+      assert.match(result.stderr, /false positive/);
+    }
+
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("commit with no staged paths is blocked", () => {
   const fixture = createFixture();
   try {
