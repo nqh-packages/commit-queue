@@ -183,6 +183,22 @@ test("unsupported mutating commands require a session", () => {
   }
 });
 
+test("unsupported mutating commands are blocked with a session", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    const result = runCommitQueue(fixture.repo, ["tag", "v1.0.0"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_UNSUPPORTED_MUTATION_BLOCKED/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("explicit add uses the session index and leaves the shared index clean", () => {
   const fixture = createFixture();
   try {

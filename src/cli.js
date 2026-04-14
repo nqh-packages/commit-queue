@@ -110,7 +110,17 @@ export function runProtectedGit(args) {
     return;
   }
 
-  requireSession(command, repo);
+  const session = requireSession(command, repo);
+  if (!session) return;
+
+  fail(errorPayload({
+    code: "COMMIT_QUEUE_UNSUPPORTED_MUTATION_BLOCKED",
+    title: "Unsupported mutating command blocked",
+    detail: `Git command '${command}' is not supported by commit-queue protected mode.`,
+    context: { command, repo, session: session.id },
+    suggestions: ["Use `git add path/to/file` and `git commit -m \"message\"` for protected commits."],
+    retriable: false,
+  }));
 }
 
 export function runHumanGit(args) {
