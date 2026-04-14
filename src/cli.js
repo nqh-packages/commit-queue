@@ -9,7 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +38,9 @@ const READ_ONLY_COMMANDS = new Set([
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
+const LOCK_TIMEOUT_MS = 5000;
+const ORPHAN_LOCK_GRACE_MS = 5000;
+const HARD_STALE_LOCK_MS = 30 * 60 * 1000;
 
 export function runProtectedGit(args) {
   const realGit = resolveRealGit();
@@ -493,26 +496,37 @@ function withRepoLock(repo, fn) {
   ensureStateDirs(state);
   const lockPath = path.join(state.locks, `${hash(repo)}.lock`);
   const started = Date.now();
+  let currentLock = null;
 
   while (true) {
     try {
       mkdirSync(lockPath);
-      break;
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      clearStaleLock(lockPath);
-      if (Date.now() - started > 5000) {
+      currentLock = recoverLock(lockPath);
+      if (currentLock.recovered) continue;
+
+      if (Date.now() - started > lockTimeoutMs()) {
         fail(errorPayload({
           code: "COMMIT_QUEUE_REPO_LOCK_TIMEOUT",
           title: "Repository lock timeout",
           detail: "Could not acquire the commit lock for this repository.",
-          context: { repo, lock: lockPath },
-          suggestions: ["Retry the commit after the active commit finishes."],
+          context: { repo, lock: lockPath, lock_owner: currentLock.owner, lock_age_ms: currentLock.ageMs },
+          suggestions: lockTimeoutSuggestions(currentLock),
           retriable: true,
         }));
         return;
       }
       sleep(50);
+      continue;
+    }
+
+    try {
+      writeLockMetadata(lockPath, repo);
+      break;
+    } catch (error) {
+      rmSync(lockPath, { recursive: true, force: true });
+      throw error;
     }
   }
 
@@ -532,15 +546,86 @@ function withRepoLock(repo, fn) {
   }
 }
 
-function clearStaleLock(lockPath) {
-  try {
-    const ageMs = Date.now() - statSync(lockPath).mtimeMs;
-    if (ageMs > 30 * 60 * 1000) {
-      rmSync(lockPath, { recursive: true, force: true });
-    }
-  } catch {
-    return;
+function writeLockMetadata(lockPath, repo) {
+  writeJsonAtomic(path.join(lockPath, "owner.json"), {
+    pid: process.pid,
+    host: hostname(),
+    repo,
+    startedAt: new Date().toISOString(),
+  });
+}
+
+function recoverLock(lockPath) {
+  const info = readLockInfo(lockPath);
+  if (!info.exists) return { recovered: true, reason: "missing" };
+
+  if (info.ageMs > HARD_STALE_LOCK_MS) {
+    rmSync(lockPath, { recursive: true, force: true });
+    return { ...info, recovered: true, reason: "stale" };
   }
+
+  if (!info.owner) {
+    if (info.ageMs > ORPHAN_LOCK_GRACE_MS) {
+      rmSync(lockPath, { recursive: true, force: true });
+      return { ...info, recovered: true, reason: "orphan" };
+    }
+    return { ...info, recovered: false, reason: "orphan_grace" };
+  }
+
+  if (lockOwnerIsGone(info.owner)) {
+    rmSync(lockPath, { recursive: true, force: true });
+    return { ...info, recovered: true, reason: "dead_owner" };
+  }
+
+  return { ...info, recovered: false, reason: "active_owner" };
+}
+
+function readLockInfo(lockPath) {
+  try {
+    const stat = statSync(lockPath);
+    return {
+      exists: true,
+      ageMs: Date.now() - stat.mtimeMs,
+      owner: readLockOwner(lockPath),
+    };
+  } catch {
+    return { exists: false, ageMs: 0, owner: null };
+  }
+}
+
+function readLockOwner(lockPath) {
+  try {
+    return JSON.parse(readFileSync(path.join(lockPath, "owner.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function lockOwnerIsGone(owner) {
+  if (!Number.isInteger(owner?.pid) || owner.pid <= 0) return false;
+  if (owner.host && owner.host !== hostname()) return false;
+
+  try {
+    process.kill(owner.pid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === "ESRCH";
+  }
+}
+
+function lockTimeoutSuggestions(lockInfo) {
+  const suggestions = ["Retry the commit after the active commit finishes."];
+  if (lockInfo?.owner?.pid) {
+    suggestions.push(`Active lock owner pid: ${lockInfo.owner.pid}.`);
+  }
+  if (lockInfo?.ageMs !== undefined) {
+    suggestions.push(`Lock age: ${Math.round(lockInfo.ageMs)}ms.`);
+  }
+  return suggestions;
+}
+
+function lockTimeoutMs() {
+  return Number.parseInt(process.env.COMMIT_QUEUE_LOCK_TIMEOUT_MS || "", 10) || LOCK_TIMEOUT_MS;
 }
 
 function sleep(ms) {

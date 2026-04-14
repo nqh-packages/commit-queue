@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -365,6 +366,89 @@ test("commit blocks when a staged file drifts after add", () => {
   }
 });
 
+test("commit recovers an orphaned repo lock without manual deletion", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const lockPath = repoLockPath(fixture.state, fixture.repo);
+    mkdirSync(lockPath, { recursive: true });
+    const oldEnoughToBeOrphaned = new Date(Date.now() - 10_000);
+    utimesSync(lockPath, oldEnoughToBeOrphaned, oldEnoughToBeOrphaned);
+
+    const commit = runCommitQueue(fixture.repo, ["commit", "-m", "test: add a"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(commit.status, 0, commit.stderr);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: add a");
+    assert.deepEqual(readdirSync(path.join(fixture.state, "locks")), []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit recovers a lock whose owner process is gone", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const lockPath = repoLockPath(fixture.state, fixture.repo);
+    mkdirSync(lockPath, { recursive: true });
+    writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+      pid: 99999999,
+      repo: fixture.repo,
+      startedAt: new Date().toISOString(),
+    }));
+
+    const commit = runCommitQueue(fixture.repo, ["commit", "-m", "test: add a"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(commit.status, 0, commit.stderr);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: add a");
+    assert.deepEqual(readdirSync(path.join(fixture.state, "locks")), []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit lock timeout reports the active owner instead of requiring manual deletion", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const lockPath = repoLockPath(fixture.state, fixture.repo);
+    mkdirSync(lockPath, { recursive: true });
+    writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+      pid: process.pid,
+      repo: fixture.repo,
+      startedAt: new Date().toISOString(),
+    }));
+
+    const commit = runCommitQueue(fixture.repo, ["commit", "-m", "test: add a"], {
+      state: fixture.state,
+      env: { ...env, COMMIT_QUEUE_LOCK_TIMEOUT_MS: "50" },
+    });
+
+    assert.notEqual(commit.status, 0);
+    assert.match(commit.stderr, /COMMIT_QUEUE_REPO_LOCK_TIMEOUT/);
+    assert.match(commit.stderr, new RegExp(`Active lock owner pid: ${process.pid}`));
+    assert.match(commit.stderr, /Lock age: \d+ms/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("commit blocks when HEAD moved after session creation", () => {
   const fixture = createFixture();
   try {
@@ -472,3 +556,8 @@ test("hgit passes through to real Git", () => {
     fixture.cleanup();
   }
 });
+
+function repoLockPath(state, repo) {
+  const lockName = createHash("sha256").update(repo).digest("hex").slice(0, 24);
+  return path.join(state, "locks", `${lockName}.lock`);
+}

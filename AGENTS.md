@@ -43,6 +43,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Do not implement a daemon in v1 | Adds lifecycle and debugging cost |
 | Do not use filesystem watchers in v1 | Drift check is commit-time only |
 | Do not auto-merge conflicts | Ambiguous content must block |
+| Do not delete `~/.commit-queue/` state by hand | Locks self-heal; manual deletion can break active commits |
 | Do not add runtime dependencies without approval | Tool must stay tiny and shareable |
 
 ## Command Policy
@@ -188,8 +189,17 @@ The real Git path must never resolve back to the shim.
 |-------|----------|-------|
 | Session metadata | `~/.commit-queue/sessions/{id}.json` | Repo, created time, parent `HEAD`, staged paths |
 | Session index | `~/.commit-queue/indexes/{id}.index` | Used through `GIT_INDEX_FILE` |
-| Repo lock | `~/.commit-queue/locks/{repoHash}.lock` | Held only during commit/ref mutation |
+| Repo lock | `~/.commit-queue/locks/{repoHash}.lock` | Held only during commit/ref mutation; includes owner metadata |
 | Event log | `~/.commit-queue/logs/events.jsonl` | Structured audit trail |
+
+## Lock Recovery
+
+| Lock State | Required Behavior |
+|------------|-------------------|
+| Active owner process | Wait, then return owner pid and lock age |
+| Dead owner process | Clear lock automatically |
+| Empty orphan lock | Clear lock automatically after grace period |
+| Old lock | Clear lock automatically |
 
 ## Drift Rules
 
@@ -223,4 +233,3 @@ Before claiming implementation work is complete:
 | `hgit` bypass test exists | Yes |
 | Error output is structured | Yes |
 | No runtime dependencies added silently | Yes |
-

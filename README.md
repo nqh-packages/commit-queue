@@ -62,6 +62,7 @@ Now Agent A's commit may contain Agent B's work.
 | Agents share one Git index | Each session gets its own index with `GIT_INDEX_FILE` |
 | Agents use broad staging | `git add .`, `git add -A`, and `git commit -a` are blocked |
 | Agents commit at the same time | Commits run through a per-repo lock |
+| A stale lock remains | Lock owner metadata lets the wrapper recover it automatically |
 | A file changes after staging | Commit blocks until the agent stages again |
 | Humans need escape | `hgit` calls real Git |
 
