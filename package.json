@@ -1,0 +1,19 @@
+{
+  "name": "commit-queue",
+  "version": "0.0.0",
+  "description": "Git safety wrapper for AI-agent-heavy local development.",
+  "type": "module",
+  "bin": {
+    "git": "./bin/git",
+    "hgit": "./bin/hgit"
+  },
+  "scripts": {
+    "install:local": "node scripts/install-local.js",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

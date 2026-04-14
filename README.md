@@ -7,7 +7,7 @@ Tiny Git safety wrapper for people running multiple AI coding agents in the same
 | What is this? | A protected `git` shim plus a raw human `hgit` command |
 | Why use it? | Agents stop committing over each other |
 | Why it works | Each agent session gets isolated staging and commits serialize |
-| Status | Design scaffold. CLI implementation comes next |
+| Status | Local v1 scaffold with behavior tests |
 
 Agent flow:
 
@@ -77,11 +77,17 @@ Now Agent A's commit may contain Agent B's work.
 
 ## How To Use It
 
-Planned install shape:
+Local install:
+
+```bash
+npm run install:local
+```
+
+Install shape:
 
 ```text
-~/.local/bin/git   -> commit-queue protected shim
-~/.local/bin/hgit  -> raw Git passthrough
+~/.commit-queue/bin/git   -> commit-queue protected shim
+~/.commit-queue/bin/hgit  -> raw Git passthrough
 ```
 
 Agent flow:
@@ -97,6 +103,14 @@ Human flow:
 ```bash
 hgit add .
 hgit commit -m "manual commit"
+```
+
+Opt out a repo:
+
+```json
+{
+  "enabled": false
+}
 ```
 
 Blocked in v1:
