@@ -516,10 +516,19 @@ function withRepoLock(repo, fn) {
     }
   }
 
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    rmSync(lockPath, { recursive: true, force: true });
+  };
+
+  process.once("exit", release);
   try {
     fn();
   } finally {
-    rmSync(lockPath, { recursive: true, force: true });
+    process.removeListener("exit", release);
+    release();
   }
 }
 

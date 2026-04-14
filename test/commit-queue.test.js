@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -261,6 +261,7 @@ test("clean session commit creates a real commit without polluting the shared in
     assert.equal(commit.status, 0, commit.stderr);
     assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: add a");
     assert.equal(runRealGit(fixture.repo, ["status", "--short"]).stdout.trim(), "");
+    assert.deepEqual(readdirSync(path.join(fixture.state, "locks")), []);
   } finally {
     fixture.cleanup();
   }
@@ -358,6 +359,7 @@ test("commit blocks when a staged file drifts after add", () => {
     assert.notEqual(commit.status, 0);
     assert.match(commit.stderr, /COMMIT_QUEUE_FILE_DRIFT/);
     assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+    assert.deepEqual(readdirSync(path.join(fixture.state, "locks")), []);
   } finally {
     fixture.cleanup();
   }

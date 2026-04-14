@@ -15,7 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const home = homedir();
+const home = process.env.COMMIT_QUEUE_INSTALL_HOME || homedir();
 const binDir = path.join(home, ".commit-queue", "bin");
 const managedBlock = [
   "# >>> commit-queue >>>",
@@ -31,6 +31,7 @@ installSymlink(path.join(repoRoot, "bin/git"), path.join(binDir, "git"));
 installSymlink(path.join(repoRoot, "bin/hgit"), path.join(binDir, "hgit"));
 ensureShellProfile(path.join(home, ".zprofile"));
 ensureShellProfile(path.join(home, ".zshrc"));
+ensureShellProfile(path.join(home, ".zshenv"));
 
 process.stdout.write([
   "[commit-queue] local install complete",
