@@ -21,11 +21,13 @@ test("read-only commands pass through without a session", () => {
     const status = runCommitQueue(fixture.repo, ["status", "--short"], { state: fixture.state });
     const log = runCommitQueue(fixture.repo, ["log", "-1", "--pretty=%s"], { state: fixture.state });
     const branch = runCommitQueue(fixture.repo, ["branch", "--show-current"], { state: fixture.state });
+    const lsFiles = runCommitQueue(fixture.repo, ["ls-files", "README.md"], { state: fixture.state });
 
     assert.equal(status.status, 0, status.stderr);
     assert.equal(status.stdout.trim(), "");
     assert.equal(log.stdout.trim(), "test: initial");
     assert.equal(branch.stdout.trim(), "main");
+    assert.equal(lsFiles.stdout.trim(), "README.md");
   } finally {
     fixture.cleanup();
   }
@@ -195,6 +197,23 @@ test("blocked shared-tree and history commands fail before Git mutates", () => {
   }
 });
 
+test("push passes through without a session", () => {
+  const fixture = createFixture();
+  const remote = createTempDir();
+  try {
+    assert.equal(runRealGit(remote.root, ["init", "--bare"]).status, 0);
+    assert.equal(runRealGit(fixture.repo, ["remote", "add", "origin", remote.root]).status, 0);
+
+    const result = runCommitQueue(fixture.repo, ["push", "origin", "main"], { state: fixture.state });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(runRealGit(remote.root, ["rev-parse", "--verify", "main"]).stdout.trim(), /^[0-9a-f]{40}$/);
+  } finally {
+    fixture.cleanup();
+    remote.cleanup();
+  }
+});
+
 test("unsupported mutating commands require a session", () => {
   const fixture = createFixture();
   try {
@@ -330,6 +349,26 @@ test("commit --no-verify is blocked with a session", () => {
     }
 
     assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit --amend is blocked as a history rewrite", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "--amend", "-m", "test: rewrite"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_AMEND_BLOCKED/);
+    assert.match(result.stderr, /follow-up commit/);
+    assert.match(result.stderr, /ask the human/);
+    assert.doesNotMatch(result.stderr, /Use `git add path\/to\/file`/);
   } finally {
     fixture.cleanup();
   }
@@ -627,15 +666,17 @@ test("COMMIT_QUEUE_BYPASS is ignored by protected git", () => {
   }
 });
 
-test("hgit passes through to real Git", () => {
+test("human Git passthrough is blocked without an interactive terminal", () => {
   const fixture = createFixture();
   try {
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
 
     const result = runHgit(fixture.repo, ["add", "."], { state: fixture.state });
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout, /src\/a\.ts/);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_HUMAN_GIT_TTY_REQUIRED/);
+    assert.match(result.stderr, /ask the human/);
+    assert.equal(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "");
   } finally {
     fixture.cleanup();
   }

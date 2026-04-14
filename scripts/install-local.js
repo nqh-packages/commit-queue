@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -16,7 +15,9 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.COMMIT_QUEUE_INSTALL_HOME || homedir();
-const binDir = path.join(home, ".commit-queue", "bin");
+const installRoot = path.join(home, ".commit-queue");
+const binDir = path.join(installRoot, "bin");
+const srcDir = path.join(installRoot, "src");
 const managedBlock = [
   "# >>> commit-queue >>>",
   "commit_queue_bin=\"$HOME/.commit-queue/bin\"",
@@ -30,8 +31,11 @@ const managedBlock = [
 ].join("\n");
 
 mkdirSync(binDir, { recursive: true });
-installSymlink(path.join(repoRoot, "bin/git"), path.join(binDir, "git"));
-installSymlink(path.join(repoRoot, "bin/hgit"), path.join(binDir, "hgit"));
+mkdirSync(srcDir, { recursive: true });
+installFile(path.join(repoRoot, "bin/git"), path.join(binDir, "git"), 0o755);
+installFile(path.join(repoRoot, "bin/hgit"), path.join(binDir, "hgit"), 0o755);
+installFile(path.join(repoRoot, "src/cli.js"), path.join(srcDir, "cli.js"), 0o644);
+writeFileSync(path.join(installRoot, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`);
 ensureShellProfile(path.join(home, ".zprofile"));
 ensureShellProfile(path.join(home, ".zshrc"));
 ensureShellProfile(path.join(home, ".zshenv"));
@@ -41,22 +45,19 @@ ensureShellProfile(path.join(home, ".profile"));
 
 process.stdout.write([
   "[commit-queue] local install complete",
-  `git: ${path.join(binDir, "git")}`,
-  `hgit: ${path.join(binDir, "hgit")}`,
+  "protected git installed",
   "Restart the shell or run: export PATH=\"$HOME/.commit-queue/bin:$PATH\"",
   "",
 ].join("\n"));
 
-function installSymlink(source, target) {
-  if (existsSync(target)) {
-    const stat = lstatSync(target);
-    if (stat.isSymbolicLink()) {
-      rmSync(target);
-    } else {
-      renameSync(target, `${target}.backup-${Date.now()}`);
-    }
+function installFile(source, target, mode) {
+  if (!path.resolve(target).startsWith(path.resolve(installRoot))) {
+    throw new Error(`Refusing to write outside install root: ${target}`);
   }
-  symlinkSync(source, target);
+
+  rmSync(target, { force: true });
+  copyFileSync(source, target);
+  chmodSync(target, mode);
 }
 
 function ensureShellProfile(profilePath) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -23,6 +23,17 @@ test("local installer wires commit-queue into common shell startup files", () =>
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /local install complete/);
+    assert.doesNotMatch(result.stdout, /hgit/);
+
+    const gitShim = path.join(home, ".commit-queue", "bin", "git");
+    const humanGitShim = path.join(home, ".commit-queue", "bin", "hgit");
+    assert.equal(lstatSync(gitShim).isSymbolicLink(), false);
+    assert.equal(lstatSync(humanGitShim).isSymbolicLink(), false);
+    assert.equal(existsSync(path.join(home, ".commit-queue", "src", "cli.js")), true);
+    assert.equal(
+      JSON.parse(readFileSync(path.join(home, ".commit-queue", "package.json"), "utf8")).type,
+      "module",
+    );
 
     for (const profile of [".zprofile", ".zshrc", ".zshenv", ".bash_profile", ".bashrc", ".profile"]) {
       const content = readFileSync(path.join(home, profile), "utf8");

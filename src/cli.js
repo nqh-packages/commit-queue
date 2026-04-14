@@ -24,11 +24,13 @@ const BLOCKED_COMMANDS = new Map([
   ["stash", "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
 ]);
 
-const READ_ONLY_COMMANDS = new Set([
+const PASSTHROUGH_COMMANDS = new Set([
   "status",
   "diff",
   "log",
   "show",
+  "ls-files",
+  "push",
   "help",
   "--help",
   "-h",
@@ -104,7 +106,7 @@ export function runProtectedGit(args) {
     return;
   }
 
-  if (isReadOnlyCommand(command, args)) {
+  if (isPassthroughCommand(command, args)) {
     exitWithResult(runGit(realGit, args, { stdio: "pipe" }));
     return;
   }
@@ -148,6 +150,21 @@ export function runProtectedGit(args) {
 }
 
 export function runHumanGit(args) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_HUMAN_GIT_TTY_REQUIRED",
+      title: "Human Git requires an interactive terminal",
+      detail: "Human Git passthrough requires an interactive terminal.",
+      context: { command: args[0] || null },
+      suggestions: [
+        "Use protected git commands from agent sessions.",
+        "If protected mode is blocking a real false positive, stop and ask the human.",
+      ],
+      retriable: false,
+    }));
+    return;
+  }
+
   exitWithResult(runGit(resolveRealGit(), args, { stdio: "pipe" }));
 }
 
@@ -269,6 +286,21 @@ function handleCommit(realGit, repo, args) {
         "If the hook is a false positive, stop and ask the human.",
       ],
       retriable: true,
+    }));
+    return;
+  }
+
+  if (args.includes("--amend")) {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_AMEND_BLOCKED",
+      title: "Amend blocked",
+      detail: "`git commit --amend` rewrites the current commit and is blocked in protected mode.",
+      context: { command: "commit", args, repo, session: session.id },
+      suggestions: [
+        "Create a follow-up commit instead of rewriting history.",
+        "If the latest commit message must be rewritten, stop and ask the human.",
+      ],
+      retriable: false,
     }));
     return;
   }
@@ -476,8 +508,8 @@ function explicitPathArgs(args) {
   return args.filter((arg) => arg !== "--" && !arg.startsWith("-"));
 }
 
-function isReadOnlyCommand(command, args) {
-  if (READ_ONLY_COMMANDS.has(command)) return true;
+function isPassthroughCommand(command, args) {
+  if (PASSTHROUGH_COMMANDS.has(command)) return true;
   if (command === "branch") {
     return !args.some((arg) => ["-d", "-D", "-m", "-M", "--delete", "--move", "--set-upstream-to"].includes(arg));
   }
