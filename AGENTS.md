@@ -1,0 +1,226 @@
+# AGENTS.md
+
+## Mission
+
+Build `commit-queue`: a small local Git safety shim for AI-agent-heavy development.
+
+| Priority | Rule |
+|----------|------|
+| 1 | Preserve real Git behavior for read-only commands |
+| 2 | Block unsafe agent mutations before they touch shared Git state |
+| 3 | Keep v1 small: no daemon, no server, no filesystem watcher |
+| 4 | Make errors actionable for AI agents |
+| 5 | Keep human escape via `hgit` |
+
+## Product Contract
+
+Read [VISION.md](./VISION.md) before changing behavior.
+
+### Locked v1 Decisions
+
+| Area | Decision |
+|------|----------|
+| Name | `commit-queue` |
+| Protected command | `git` |
+| Human/raw command | `hgit` |
+| Default scope | Enabled for all Git repos |
+| Opt-out file | `.commit-queue.json` with `{ "enabled": false }` |
+| Session command | `eval "$(git getID)"` |
+| Session env vars | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO` |
+| Staging | Explicit paths only |
+| Index isolation | `GIT_INDEX_FILE` per session |
+| Commit safety | Per-repo lock, drift check, HEAD check |
+| Runtime state | `~/.commit-queue/` |
+
+## Non-Negotiables
+
+| Rule | Reason |
+|------|--------|
+| Do not replace `/usr/bin/git` | User-level PATH shim only |
+| Do not mention `hgit` in agent-facing errors | Bypass is for humans/operators |
+| Do not allow `git add .` in v1 | Broad add can capture unrelated changes |
+| Do not allow `git commit -a` in v1 | It bypasses explicit staging |
+| Do not implement a daemon in v1 | Adds lifecycle and debugging cost |
+| Do not use filesystem watchers in v1 | Drift check is commit-time only |
+| Do not auto-merge conflicts | Ambiguous content must block |
+| Do not add runtime dependencies without approval | Tool must stay tiny and shareable |
+
+## Command Policy
+
+### Pass Through Without Session
+
+| Command | Notes |
+|---------|-------|
+| `git status` | Pass through |
+| `git diff` | Pass through |
+| `git log` | Pass through |
+| `git show` | Pass through |
+| `git branch` | Pass through only for read-only forms |
+| `git --version` | Pass through |
+| `git help` | Pass through |
+
+### Protected Commands
+
+| Command | Required Behavior |
+|---------|-------------------|
+| `git getID` | Create session, print shell exports |
+| `git add path` | Require session, explicit paths only, stage into session index |
+| `git commit -m "..."` | Require session, lock repo, verify drift, commit |
+
+### Blocked In v1
+
+| Command | Error Code |
+|---------|------------|
+| `git add .` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
+| `git add -A` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
+| `git add -u` | `COMMIT_QUEUE_BROAD_ADD_BLOCKED` |
+| `git commit -a` | `COMMIT_QUEUE_COMMIT_ALL_BLOCKED` |
+| `git checkout` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
+| `git switch` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
+| `git reset` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
+| `git restore` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
+| `git merge` | `COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED` |
+| `git rebase` | `COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED` |
+| `git pull` | `COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED` |
+| `git stash` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
+
+## Error Rules
+
+Use structured, agent-recoverable errors.
+
+| Field | Required |
+|-------|----------|
+| `error_code` | Yes |
+| `detail` | Yes |
+| `context` | Yes |
+| `suggestions` | Yes |
+| `retriable` | Yes |
+
+### Agent-Facing Error Example
+
+```json
+{
+  "error_code": "COMMIT_QUEUE_SESSION_REQUIRED",
+  "detail": "Mutating Git command 'add' requires COMMIT_QUEUE_ID.",
+  "context": {
+    "command": "add",
+    "repo": "/repo"
+  },
+  "retriable": true,
+  "suggestions": [
+    "Run `eval \"$(git getID)\"` before mutating Git commands.",
+    "Use explicit paths: `git add path/to/file`."
+  ]
+}
+```
+
+### Forbidden Error Content
+
+| Do Not Include | Reason |
+|----------------|--------|
+| `hgit` bypass instructions | Agents should not learn bypass route |
+| Raw stack traces in normal output | Too noisy for agent recovery |
+| Vague text like `Something went wrong` | Not self-healing |
+| Secrets or full environment dumps | Security risk |
+
+## Testing Discipline
+
+Use TDD.
+
+| Phase | Required Evidence |
+|-------|-------------------|
+| RED | Test fails for the expected reason |
+| GREEN | Minimal implementation passes |
+| REFACTOR | Tests remain green after cleanup |
+
+### Required Test Types
+
+| Type | Purpose |
+|------|---------|
+| Unit | Command classification, config parsing, error formatting |
+| Integration | Real temp Git repo behavior |
+| Concurrency | Lock and simultaneous commit behavior |
+
+### Required Test Cases
+
+| Case | Expected Result |
+|------|-----------------|
+| Commit without session | Blocked |
+| Add without session | Blocked |
+| `git getID` | Prints valid shell exports |
+| Explicit add | Uses session index |
+| Broad add | Blocked |
+| Commit after clean add | Creates commit |
+| File drift after add | Blocked |
+| `HEAD` drift | Blocked |
+| Opt-out config | Calls real Git |
+| `hgit` | Calls real Git |
+| Agent error | Includes code and suggestions |
+
+## Implementation Guidelines
+
+| Topic | Rule |
+|-------|------|
+| Language | Node.js CLI preferred |
+| Dependencies | Zero runtime dependencies in v1 |
+| Tests | Use built-in `node:test` unless a stronger reason appears |
+| File writes | Atomic write pattern for session state |
+| Paths | Normalize through Git root-relative paths |
+| Real Git | Resolve once; avoid recursive shim calls |
+| Logs | JSONL under `~/.commit-queue/logs/` |
+| Formatting | Run formatter after edits once package tooling exists |
+
+## Real Git Invocation
+
+Avoid recursive calls to the shim.
+
+```text
+commit-queue git shim
+  -> resolves real Git binary
+  -> runs real Git with controlled env
+```
+
+The real Git path must never resolve back to the shim.
+
+## State Model
+
+| State | Location | Notes |
+|-------|----------|-------|
+| Session metadata | `~/.commit-queue/sessions/{id}.json` | Repo, created time, parent `HEAD`, staged paths |
+| Session index | `~/.commit-queue/indexes/{id}.index` | Used through `GIT_INDEX_FILE` |
+| Repo lock | `~/.commit-queue/locks/{repoHash}.lock` | Held only during commit/ref mutation |
+| Event log | `~/.commit-queue/logs/events.jsonl` | Structured audit trail |
+
+## Drift Rules
+
+| Drift Type | Detection | Result |
+|------------|-----------|--------|
+| File content changed after add | Staged hash or file hash mismatch | Block |
+| Staged path set changed unexpectedly | Session manifest mismatch | Block |
+| `HEAD` moved unexpectedly | Parent SHA mismatch | Block |
+| Repo opted out | Config says disabled | Pass through |
+
+## Documentation Rules
+
+| Document | Purpose |
+|----------|---------|
+| `VISION.md` | Product contract and architecture decisions |
+| `AGENTS.md` | Agent operating rules |
+| `README.md` | User install and usage guide, only after working CLI exists |
+
+Do not create speculative docs beyond these unless requested.
+
+## Completion Checklist
+
+Before claiming implementation work is complete:
+
+| Check | Required |
+|-------|----------|
+| Tests pass | Yes |
+| Drift test exists | Yes |
+| Broad add test exists | Yes |
+| Session-required test exists | Yes |
+| `hgit` bypass test exists | Yes |
+| Error output is structured | Yes |
+| No runtime dependencies added silently | Yes |
+
