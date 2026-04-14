@@ -95,6 +95,36 @@ test("mutating commands are blocked without a session", () => {
   }
 });
 
+test("mutating commands are protected when repo is selected with global Git options", () => {
+  const fixture = createFixture();
+  const outside = createTempDir();
+  try {
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+
+    const fromDashC = runCommitQueue(outside.root, ["-C", fixture.repo, "add", "src/a.ts"], {
+      state: fixture.state,
+    });
+    const fromGitDir = runCommitQueue(outside.root, [
+      `--git-dir=${path.join(fixture.repo, ".git")}`,
+      `--work-tree=${fixture.repo}`,
+      "add",
+      "src/b.ts",
+    ], {
+      state: fixture.state,
+    });
+
+    assert.notEqual(fromDashC.status, 0);
+    assert.match(fromDashC.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.notEqual(fromGitDir.status, 0);
+    assert.match(fromGitDir.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.equal(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "");
+  } finally {
+    fixture.cleanup();
+    outside.cleanup();
+  }
+});
+
 test("JSON error mode returns structured agent-recoverable errors", () => {
   const fixture = createFixture();
   try {
@@ -123,7 +153,7 @@ test("broad add commands are blocked even with a session", () => {
     const env = activateSession(fixture.repo, fixture.state);
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
 
-    for (const args of [["add", "."], ["add", "-A"], ["add", "-u"]]) {
+    for (const args of [["add", "."], ["add", "-A"], ["add", "-u"], ["add", ":(glob)**"]]) {
       const result = runCommitQueue(fixture.repo, args, {
         state: fixture.state,
         env,
@@ -132,6 +162,15 @@ test("broad add commands are blocked even with a session", () => {
       assert.notEqual(result.status, 0, `${args.join(" ")} should fail`);
       assert.match(result.stderr, /COMMIT_QUEUE_BROAD_ADD_BLOCKED/);
     }
+
+    assert.equal(
+      runRealGitWithIndex(
+        fixture.repo,
+        sessionIndexPath(fixture.state, env.COMMIT_QUEUE_ID),
+        ["diff", "--cached", "--name-only"],
+      ).stdout.trim(),
+      "",
+    );
   } finally {
     fixture.cleanup();
   }
@@ -319,6 +358,38 @@ test("commit blocks when session manifest and private index disagree", () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /COMMIT_QUEUE_STAGED_PATH_MISMATCH/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit blocks when session metadata points at another session index", () => {
+  const fixture = createFixture();
+  try {
+    const firstEnv = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env: firstEnv }).status, 0);
+
+    const secondEnv = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/b.ts"], { state: fixture.state, env: secondEnv }).status, 0);
+
+    const firstSessionPath = path.join(fixture.state, "sessions", `${firstEnv.COMMIT_QUEUE_ID}.json`);
+    const secondSessionPath = path.join(fixture.state, "sessions", `${secondEnv.COMMIT_QUEUE_ID}.json`);
+    const firstSession = JSON.parse(readFileSync(firstSessionPath, "utf8"));
+    const secondSession = JSON.parse(readFileSync(secondSessionPath, "utf8"));
+    firstSession.indexPath = secondSession.indexPath;
+    firstSession.stagedPaths = secondSession.stagedPaths;
+    writeFileSync(firstSessionPath, `${JSON.stringify(firstSession, null, 2)}\n`);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "-m", "test: hijack"], {
+      state: fixture.state,
+      env: firstEnv,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_TAMPERED/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
   } finally {
     fixture.cleanup();
   }

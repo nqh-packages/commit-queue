@@ -36,6 +36,31 @@ const READ_ONLY_COMMANDS = new Set([
   "version",
 ]);
 
+const GLOBAL_OPTIONS_WITH_VALUE = new Set([
+  "-C",
+  "-c",
+  "--config-env",
+  "--exec-path",
+  "--git-dir",
+  "--namespace",
+  "--super-prefix",
+  "--work-tree",
+]);
+
+const GLOBAL_OPTIONS_WITHOUT_VALUE = new Set([
+  "-P",
+  "-p",
+  "--bare",
+  "--glob-pathspecs",
+  "--icase-pathspecs",
+  "--literal-pathspecs",
+  "--no-optional-locks",
+  "--no-pager",
+  "--no-replace-objects",
+  "--noglob-pathspecs",
+  "--paginate",
+]);
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
 const LOCK_TIMEOUT_MS = 5000;
@@ -50,13 +75,14 @@ export function runProtectedGit(args) {
     return;
   }
 
-  const command = args[0];
+  const invocation = parseInvocation(args);
+  const command = invocation.command;
   if (!command) {
     exitWithResult(runGit(realGit, args, { stdio: "pipe" }));
     return;
   }
 
-  const repo = resolveRepo(realGit);
+  const repo = resolveRepo(realGit, invocation.globalArgs);
   if (!repo) {
     if (command === "getID") {
       fail(errorPayload({
@@ -104,12 +130,12 @@ export function runProtectedGit(args) {
   }
 
   if (command === "add") {
-    handleAdd(realGit, repo, args.slice(1));
+    handleAdd(realGit, repo, invocation.commandArgs);
     return;
   }
 
   if (command === "commit") {
-    handleCommit(realGit, repo, args.slice(1));
+    handleCommit(realGit, repo, invocation.commandArgs);
     return;
   }
 
@@ -135,7 +161,7 @@ function createSession(realGit, repo) {
   ensureStateDirs(state);
 
   const id = `cq_${timestampId()}_${randomBytes(3).toString("hex")}`;
-  const indexPath = path.join(state.indexes, `${id}.index`);
+  const indexPath = sessionIndexPath(id);
   const head = currentHead(realGit, repo);
 
   if (head) {
@@ -355,6 +381,12 @@ function requireSession(command, repo) {
     return null;
   }
 
+  const tamperReason = sessionTamperReason(session, id);
+  if (tamperReason) {
+    fail(sessionTamperedError(command, repo, id, tamperReason));
+    return null;
+  }
+
   if (session.repo !== repo) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_REPO_MISMATCH",
@@ -381,17 +413,52 @@ function sessionMissingError(command, repo, id) {
   });
 }
 
+function sessionTamperedError(command, repo, id, reason) {
+  return errorPayload({
+    code: "COMMIT_QUEUE_SESSION_TAMPERED",
+    title: "Commit queue session metadata changed",
+    detail: "COMMIT_QUEUE_ID maps to session metadata that no longer matches its expected shape.",
+    context: { command, repo, session: id, reason },
+    suggestions: ["Run `eval \"$(git getID)\"` to create a fresh session."],
+    retriable: true,
+  });
+}
+
+function sessionTamperReason(session, id) {
+  if (session.id !== id) {
+    return { field: "id", expected: id, actual: session.id };
+  }
+
+  const expectedIndexPath = sessionIndexPath(id);
+  if (path.resolve(session.indexPath || "") !== path.resolve(expectedIndexPath)) {
+    return { field: "indexPath", expected: expectedIndexPath, actual: session.indexPath };
+  }
+
+  return null;
+}
+
 function hasBroadAdd(args) {
   return args.some((arg) => (
     arg === "." ||
     arg === ":/" ||
+    arg === ":/*" ||
     arg === "-A" ||
     arg === "--all" ||
     arg === "-u" ||
     arg === "--update" ||
     arg.startsWith("-A") ||
-    arg.startsWith("-u")
+    arg.startsWith("-u") ||
+    isBroadPathspec(arg)
   ));
+}
+
+function isBroadPathspec(arg) {
+  const magic = arg.match(/^:\(([^)]*)\)(.*)$/);
+  if (!magic) return false;
+
+  const modifiers = magic[1].split(",").map((modifier) => modifier.trim());
+  const pattern = magic[2];
+  return modifiers.includes("glob") && (pattern === "**" || pattern === "**/*");
 }
 
 function explicitPathArgs(args) {
@@ -406,8 +473,53 @@ function isReadOnlyCommand(command, args) {
   return false;
 }
 
-function resolveRepo(realGit) {
-  const result = runGit(realGit, ["rev-parse", "--show-toplevel"], { stdio: "pipe" });
+function parseInvocation(args) {
+  const globalArgs = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (GLOBAL_OPTIONS_WITH_VALUE.has(arg)) {
+      globalArgs.push(arg);
+      if (index + 1 < args.length) {
+        globalArgs.push(args[index + 1]);
+        index += 1;
+      }
+      continue;
+    }
+
+    if (isJoinedGlobalOption(arg) || GLOBAL_OPTIONS_WITHOUT_VALUE.has(arg)) {
+      globalArgs.push(arg);
+      continue;
+    }
+
+    return {
+      globalArgs,
+      command: arg,
+      commandArgs: args.slice(index + 1),
+    };
+  }
+
+  return {
+    globalArgs,
+    command: null,
+    commandArgs: [],
+  };
+}
+
+function isJoinedGlobalOption(arg) {
+  return (
+    arg.startsWith("--config-env=") ||
+    arg.startsWith("--exec-path=") ||
+    arg.startsWith("--git-dir=") ||
+    arg.startsWith("--namespace=") ||
+    arg.startsWith("--super-prefix=") ||
+    arg.startsWith("--work-tree=") ||
+    /^-c[^=]+=.*/.test(arg)
+  );
+}
+
+function resolveRepo(realGit, globalArgs = []) {
+  const result = runGit(realGit, [...globalArgs, "rev-parse", "--show-toplevel"], { stdio: "pipe" });
   if (result.status !== 0) return null;
   return path.resolve(result.stdout.trim());
 }
@@ -465,6 +577,10 @@ function statePaths() {
     locks: path.join(root, "locks"),
     logs: path.join(root, "logs"),
   };
+}
+
+function sessionIndexPath(id) {
+  return path.join(statePaths().indexes, `${id}.index`);
 }
 
 function ensureStateDirs(state = statePaths()) {

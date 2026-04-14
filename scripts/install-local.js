@@ -19,8 +19,11 @@ const home = process.env.COMMIT_QUEUE_INSTALL_HOME || homedir();
 const binDir = path.join(home, ".commit-queue", "bin");
 const managedBlock = [
   "# >>> commit-queue >>>",
-  "if [ -d \"$HOME/.commit-queue/bin\" ]; then",
-  "  export PATH=\"$HOME/.commit-queue/bin:$PATH\"",
+  "commit_queue_bin=\"$HOME/.commit-queue/bin\"",
+  "if [ -d \"$commit_queue_bin\" ]; then",
+  "  commit_queue_path=\"$(printf '%s' \"$PATH\" | awk -v bin=\"$commit_queue_bin\" 'BEGIN { RS=\":\" } $0 != bin && $0 != \"\" { parts[++n] = $0 } END { for (i = 1; i <= n; i++) printf \"%s%s\", (i > 1 ? \":\" : \"\"), parts[i] }')\"",
+  "  export PATH=\"$commit_queue_bin${commit_queue_path:+:$commit_queue_path}\"",
+  "  unset commit_queue_bin commit_queue_path",
   "fi",
   "# <<< commit-queue <<<",
   "",
@@ -32,6 +35,9 @@ installSymlink(path.join(repoRoot, "bin/hgit"), path.join(binDir, "hgit"));
 ensureShellProfile(path.join(home, ".zprofile"));
 ensureShellProfile(path.join(home, ".zshrc"));
 ensureShellProfile(path.join(home, ".zshenv"));
+ensureShellProfile(path.join(home, ".bash_profile"));
+ensureShellProfile(path.join(home, ".bashrc"));
+ensureShellProfile(path.join(home, ".profile"));
 
 process.stdout.write([
   "[commit-queue] local install complete",
