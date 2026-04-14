@@ -1,5 +1,5 @@
 #!/usr/bin/env node
 
-import { runProtectedGit } from "../src/cli.js";
+import { runProtectedGit } from "../dist/cli.js";
 
 runProtectedGit(process.argv.slice(2));

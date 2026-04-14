@@ -324,13 +324,13 @@ shell command
 |-----------|----------------|
 | `bin/git` | Protected shim entrypoint |
 | `bin/hgit` | Raw Git passthrough for interactive humans |
-| Command classifier | Separates read-only, protected, blocked, and internal commands |
-| Repo resolver | Finds Git root and opt-out config |
-| Session manager | Creates and loads `COMMIT_QUEUE_ID` |
-| Index manager | Maps session IDs to `GIT_INDEX_FILE` paths |
-| Lock manager | Serializes commit/ref mutation per repo |
-| Drift checker | Verifies path set, content, and parent SHA before commit |
-| Error formatter | Prints structured agent-readable failures |
+| `src/cli.ts` | Orchestrates command routing only |
+| `src/command-policy.ts` | SSOT for Git command classification and supported option shapes |
+| `src/git-runtime.ts` | Resolves real Git, repo root, refs, staged paths, and blobs |
+| `src/session-store.ts` | Creates and loads `COMMIT_QUEUE_ID` metadata and private indexes |
+| `src/repo-lock.ts` | Serializes commit/ref mutation per repo |
+| `src/commands/*` | Owns behavior for supported protected commands |
+| `src/errors.ts` | Prints structured agent-readable failures |
 | Event logger | Writes JSONL audit trail |
 
 ## Error Contract

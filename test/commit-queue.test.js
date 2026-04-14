@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -335,6 +335,40 @@ test("explicit add uses the session index and leaves the shared index clean", ()
       ["diff", "--cached", "--name-only"],
     );
     assert.equal(privateIndex.stdout.trim(), "src/a.ts");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("explicit add can stage one deleted tracked file", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    rmSync(path.join(fixture.repo, "README.md"));
+
+    const result = runCommitQueue(fixture.repo, ["add", "README.md"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+
+    const privateIndex = runRealGitWithIndex(
+      fixture.repo,
+      sessionIndexPath(fixture.state, env.COMMIT_QUEUE_ID),
+      ["diff", "--cached", "--name-status"],
+    );
+    assert.equal(privateIndex.stdout.trim(), "D\tREADME.md");
+    assert.equal(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "");
+
+    const commit = runCommitQueue(fixture.repo, ["commit", "-m", "test: delete readme"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(commit.status, 0, commit.stderr);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: delete readme");
+    assert.equal(existsSync(path.join(fixture.repo, "README.md")), false);
   } finally {
     fixture.cleanup();
   }

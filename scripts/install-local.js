@@ -3,6 +3,7 @@
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -11,13 +12,14 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.COMMIT_QUEUE_INSTALL_HOME || homedir();
 const installRoot = path.join(home, ".commit-queue");
 const binDir = path.join(installRoot, "bin");
-const srcDir = path.join(installRoot, "src");
+const distDir = path.join(installRoot, "dist");
 const managedBlock = [
   "# >>> commit-queue >>>",
   "commit_queue_bin=\"$HOME/.commit-queue/bin\"",
@@ -30,11 +32,13 @@ const managedBlock = [
   "",
 ].join("\n");
 
+ensureBuiltRuntime();
 mkdirSync(binDir, { recursive: true });
-mkdirSync(srcDir, { recursive: true });
+mkdirSync(distDir, { recursive: true });
 installFile(path.join(repoRoot, "bin/git"), path.join(binDir, "git"), 0o755);
 installFile(path.join(repoRoot, "bin/hgit"), path.join(binDir, "hgit"), 0o755);
-installFile(path.join(repoRoot, "src/cli.js"), path.join(srcDir, "cli.js"), 0o644);
+installDirectory(path.join(repoRoot, "dist"), distDir);
+rmSync(path.join(installRoot, "src"), { recursive: true, force: true });
 writeFileSync(path.join(installRoot, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`);
 ensureShellProfile(path.join(home, ".zprofile"));
 ensureShellProfile(path.join(home, ".zshrc"));
@@ -50,6 +54,18 @@ process.stdout.write([
   "",
 ].join("\n"));
 
+function ensureBuiltRuntime() {
+  const result = spawnSync("npm", ["run", "build", "--silent"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    process.stderr.write(result.stdout);
+    process.stderr.write(result.stderr);
+    process.exit(result.status ?? 1);
+  }
+}
+
 function installFile(source, target, mode) {
   if (!path.resolve(target).startsWith(path.resolve(installRoot))) {
     throw new Error(`Refusing to write outside install root: ${target}`);
@@ -58,6 +74,15 @@ function installFile(source, target, mode) {
   rmSync(target, { force: true });
   copyFileSync(source, target);
   chmodSync(target, mode);
+}
+
+function installDirectory(source, target) {
+  if (!path.resolve(target).startsWith(path.resolve(installRoot))) {
+    throw new Error(`Refusing to write outside install root: ${target}`);
+  }
+
+  rmSync(target, { recursive: true, force: true });
+  cpSync(source, target, { recursive: true });
 }
 
 function ensureShellProfile(profilePath) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
 
-import { runHumanGit } from "../src/cli.js";
+import { runHumanGit } from "../dist/cli.js";
 
 runHumanGit(process.argv.slice(2));

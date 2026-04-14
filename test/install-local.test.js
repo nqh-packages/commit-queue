@@ -29,7 +29,8 @@ test("local installer wires commit-queue into common shell startup files", () =>
     const humanGitShim = path.join(home, ".commit-queue", "bin", "hgit");
     assert.equal(lstatSync(gitShim).isSymbolicLink(), false);
     assert.equal(lstatSync(humanGitShim).isSymbolicLink(), false);
-    assert.equal(existsSync(path.join(home, ".commit-queue", "src", "cli.js")), true);
+    assert.equal(existsSync(path.join(home, ".commit-queue", "dist", "cli.js")), true);
+    assert.equal(existsSync(path.join(home, ".commit-queue", "src", "cli.js")), false);
     assert.equal(
       JSON.parse(readFileSync(path.join(home, ".commit-queue", "package.json"), "utf8")).type,
       "module",

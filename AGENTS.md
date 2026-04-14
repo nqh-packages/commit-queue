@@ -173,9 +173,11 @@ Use TDD.
 
 | Topic | Rule |
 |-------|------|
-| Language | Node.js CLI preferred |
+| Language | TypeScript source, built to Node.js ESM runtime in `dist/` |
 | Dependencies | Zero runtime dependencies in v1 |
 | Tests | Use built-in `node:test` unless a stronger reason appears |
+| Orchestration | Keep `src/cli.ts` as the command router, not a behavior dump |
+| Command policy | Keep Git command classification in `src/command-policy.ts` as the SSOT |
 | File writes | Atomic write pattern for session state |
 | Paths | Normalize through Git root-relative paths |
 | Real Git | Resolve once; avoid recursive shim calls |

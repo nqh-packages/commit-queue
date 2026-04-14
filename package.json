@@ -3,17 +3,33 @@
   "version": "0.0.0",
   "description": "Git safety wrapper for AI-agent-heavy local development.",
   "type": "module",
+  "main": "./dist/cli.js",
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "git": "./bin/git",
     "hgit": "./bin/hgit"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "npm run build",
     "install:local": "node scripts/install-local.js",
+    "pretest": "npm run build",
     "test": "node --test test/*.test.js",
+    "pretest:coverage": "npm run build",
     "test:coverage": "node --test --experimental-test-coverage test/*.test.js"
   },
   "engines": {
     "node": ">=22"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
 }

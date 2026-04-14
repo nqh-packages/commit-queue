@@ -91,6 +91,14 @@ Install shape:
 ~/.commit-queue/bin/hgit  -> raw Git passthrough
 ```
 
+Development:
+
+```bash
+npm run build
+npm test
+npm run test:coverage
+```
+
 Agent flow:
 
 ```bash
