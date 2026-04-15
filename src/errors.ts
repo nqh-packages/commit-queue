@@ -23,6 +23,9 @@ export function fail(payload: ErrorPayload): never {
       `[commit-queue] blocked: ${payload.detail}`,
       "",
       `error_code: ${payload.error_code}`,
+      `retriable: ${String(payload.retriable)}`,
+      "context:",
+      ...formatContext(payload.context),
       ...payload.suggestions.map((suggestion) => `suggestion: ${suggestion}`),
       "",
     ].join("\n"));
@@ -42,4 +45,8 @@ export function errorPayload({ code, title, detail, context, suggestions, retria
     retriable,
     suggestions,
   };
+}
+
+function formatContext(context: Record<string, unknown>): string[] {
+  return JSON.stringify(context, null, 2).split("\n").map((line) => `  ${line}`);
 }

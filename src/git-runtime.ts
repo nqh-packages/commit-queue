@@ -43,6 +43,12 @@ export function resolveRepo(realGit: string, globalArgs: string[] = []): string 
   return path.resolve(result.stdout.trim());
 }
 
+export function resolveGitPathBase(realGit: string, repo: string, globalArgs: string[] = []): string {
+  const result = runGit(realGit, [...globalArgs, "rev-parse", "--show-prefix"]);
+  if (result.status !== 0) return process.cwd();
+  return path.join(repo, result.stdout.trim());
+}
+
 export function isRepoOptedOut(repo: string): boolean {
   const configPath = path.join(repo, ".commit-queue.json");
   if (!existsSync(configPath)) return false;
@@ -93,16 +99,23 @@ export function worktreeBlob(realGit: string, repo: string, relativePath: string
   return result.stdout.trim();
 }
 
-export function matchingGitPaths(realGit: string, repo: string, pathspec: string): string[] {
+export function matchingGitPaths(
+  realGit: string,
+  repo: string,
+  pathspec: string,
+  options: { cwd?: string; globalArgs?: string[] } = {},
+): string[] {
   const result = runGit(realGit, [
+    ...(options.globalArgs || []),
     "ls-files",
+    "--full-name",
     "--cached",
     "--others",
     "--deleted",
     "--exclude-standard",
     "--",
     pathspec,
-  ], { cwd: repo });
+  ], { cwd: options.cwd || repo });
   if (result.status !== 0) return [];
   return parseGitLines(result.stdout);
 }

@@ -9,11 +9,11 @@ export function requireSession(command: string, repo: string): CommitQueueSessio
     fail(errorPayload({
       code: "COMMIT_QUEUE_SESSION_REQUIRED",
       title: "Commit queue session required",
-      detail: `Mutating Git command '${command}' requires COMMIT_QUEUE_ID.`,
-      context: { command, repo },
+      detail: `Git command '${command}' needs a commit-queue session before it can mutate the repository.`,
+      context: { command, repo, cwd: process.cwd() },
       suggestions: [
-        "Run `eval \"$(git getID)\"` before mutating Git commands.",
-        "Use explicit paths: `git add path/to/file`.",
+        "Run `eval \"$(git getID)\"` from inside this repository, then retry the command.",
+        "For staging, use explicit file paths only: `git add path/to/file`.",
       ],
       retriable: true,
     }));

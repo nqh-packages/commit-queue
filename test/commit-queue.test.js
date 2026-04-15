@@ -35,6 +35,18 @@ test("read-only commands pass through without a session", () => {
   }
 });
 
+test("safe rev-parse inspection passes through without a session", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["rev-parse", "--show-toplevel"], { state: fixture.state });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), fixture.repo);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("outside Git repos, getID is blocked", () => {
   const temp = createTempDir();
   try {
@@ -77,6 +89,9 @@ test("mutating commands are blocked without a session", () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.match(result.stderr, /context:/);
+    assert.match(result.stderr, /"command": "add"/);
+    assert.match(result.stderr, /retriable: true/);
     assert.doesNotMatch(result.stderr, /hgit/);
   } finally {
     fixture.cleanup();
@@ -340,6 +355,57 @@ test("explicit add uses the session index and leaves the shared index clean", ()
   }
 });
 
+test("explicit add from a subdirectory resolves paths like real Git", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    const appDir = path.join(fixture.repo, "apps/booknow");
+    writeRepoFile(fixture.repo, "apps/booknow/Sources/Screens/BookingDetailScreen.swift", "struct Screen {}\n");
+
+    const result = runCommitQueue(appDir, ["add", "Sources/Screens/BookingDetailScreen.swift"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+
+    const privateIndex = runRealGitWithIndex(
+      fixture.repo,
+      sessionIndexPath(fixture.state, env.COMMIT_QUEUE_ID),
+      ["diff", "--cached", "--name-only"],
+    );
+    assert.equal(privateIndex.stdout.trim(), "apps/booknow/Sources/Screens/BookingDetailScreen.swift");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("cached inspection commands read the active session index", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const diff = runCommitQueue(fixture.repo, ["diff", "--cached", "--name-only"], {
+      state: fixture.state,
+      env,
+    });
+    const status = runCommitQueue(fixture.repo, ["status", "--short"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(diff.status, 0, diff.stderr);
+    assert.equal(diff.stdout.trim(), "src/a.ts");
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, /^A  src\/a\.ts/m);
+    assert.equal(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("explicit add can stage one deleted tracked file", () => {
   const fixture = createFixture();
   try {
@@ -380,11 +446,16 @@ test("real Git add failures are surfaced", () => {
     const env = activateSession(fixture.repo, fixture.state);
     const result = runCommitQueue(fixture.repo, ["add", "missing.ts"], {
       state: fixture.state,
-      env,
+      env: { ...env, COMMIT_QUEUE_JSON: "1" },
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /pathspec|did not match any files/);
+    const error = JSON.parse(result.stderr);
+    assert.equal(error.error_code, "COMMIT_QUEUE_PATHSPEC_NOT_FOUND");
+    assert.equal(error.context.cwd, fixture.repo);
+    assert.deepEqual(error.context.pathspecs, ["missing.ts"]);
+    assert.match(error.context.git_stderr, /pathspec|did not match any files/);
+    assert.match(error.suggestions.join("\n"), /git status --short -- missing\.ts/);
   } finally {
     fixture.cleanup();
   }

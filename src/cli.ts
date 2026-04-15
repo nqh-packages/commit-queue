@@ -90,6 +90,10 @@ export function runProtectedGit(args: string[]): void {
   }
 
   if (isPassthroughCommand(command, invocation.commandArgs)) {
+    const env = indexAwareReadEnv(command, repo);
+    if (env) {
+      exitWithResult(runGit(realGit, args, { env }));
+    }
     exitWithResult(runGit(realGit, args));
   }
 
@@ -109,7 +113,7 @@ export function runProtectedGit(args: string[]): void {
   }
 
   if (command === "add") {
-    handleAdd(realGit, repo, invocation.commandArgs);
+    handleAdd(realGit, repo, invocation.commandArgs, invocation.globalArgs);
     return;
   }
 
@@ -127,6 +131,16 @@ export function runProtectedGit(args: string[]): void {
     suggestions: ["Use `git add path/to/file` and `git commit -m \"message\"` for protected commits."],
     retriable: false,
   }));
+}
+
+function indexAwareReadEnv(command: string, repo: string): NodeJS.ProcessEnv | undefined {
+  if (!process.env.COMMIT_QUEUE_ID || !usesGitIndexForInspection(command)) return undefined;
+  const session = requireSession(command, repo);
+  return { GIT_INDEX_FILE: session.indexPath };
+}
+
+function usesGitIndexForInspection(command: string): boolean {
+  return command === "status" || command === "diff" || command === "ls-files";
 }
 
 export function runHumanGit(args: string[]): void {

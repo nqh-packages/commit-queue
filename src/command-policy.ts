@@ -21,6 +21,7 @@ const PASSTHROUGH_COMMANDS = new Set([
   "show",
   "ls-files",
   "push",
+  "rev-parse",
   "help",
   "--help",
   "-h",
@@ -208,18 +209,28 @@ export function explicitPathArgs(args: string[]): string[] {
   return args.filter((arg) => arg !== "--" && !arg.startsWith("-"));
 }
 
-export function firstUnsafeAddPathspec(realGit: string, repo: string, pathArgs: string[]): UnsafeAddPathspec | null {
+export function firstUnsafeAddPathspec(
+  realGit: string,
+  repo: string,
+  pathArgs: string[],
+  options: { commandCwd?: string; pathBaseCwd?: string; globalArgs?: string[] } = {},
+): UnsafeAddPathspec | null {
+  const commandCwd = options.commandCwd || repo;
+  const pathBaseCwd = options.pathBaseCwd || repo;
+
   for (const pathArg of pathArgs) {
     if (hasPathspecWildcard(pathArg)) {
       return { path: pathArg, reason: "wildcard" };
     }
 
-    const absolutePath = path.isAbsolute(pathArg) ? pathArg : path.join(repo, pathArg);
+    const absolutePath = path.isAbsolute(pathArg) ? pathArg : path.join(pathBaseCwd, pathArg);
     if (existsSync(absolutePath) && statSync(absolutePath).isDirectory()) {
       return { path: pathArg, reason: "directory" };
     }
 
-    const matches = matchingGitPaths(realGit, repo, pathArg);
+    const matchOptions: { cwd?: string; globalArgs?: string[] } = { cwd: commandCwd };
+    if (options.globalArgs) matchOptions.globalArgs = options.globalArgs;
+    const matches = matchingGitPaths(realGit, repo, pathArg, matchOptions);
     if (matches.length > 1) {
       return { path: pathArg, reason: "matches_multiple_paths", matches };
     }
