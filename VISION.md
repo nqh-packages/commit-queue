@@ -128,12 +128,12 @@ hgit commit -m "fix: manual cleanup"
 
 ## Why `git getID` Exists
 
-Agents need identity before they mutate Git.
+Agents need identity before they stage or commit through `commit-queue`.
 
 ```text
 No ID:
-  read-only Git is fine
-  mutating Git is blocked
+  normal Git passes through
+  protected add/commit are blocked
 
 With ID:
   this session gets its own index
@@ -145,29 +145,23 @@ This keeps the protocol explicit. I do not want hidden magic where the tool sile
 
 ## Safety Rules
 
-### Allowed Without Session
+### Owned Commands
 
 | Command | Behavior |
 |---------|----------|
 | `git getID` | Creates a session and prints shell exports |
-| `git status` | Pass through |
-| `git diff` | Pass through |
-| `git log` | Pass through |
-| `git show` | Pass through |
-| `git ls-files` | Pass through |
-| `git branch` | Pass through for read-only forms |
-| `git push` | Pass through for non-destructive forms |
-| `git --version` | Pass through |
-| `git help` | Pass through |
-
-### Requires Session
-
-| Command | Behavior |
-|---------|----------|
 | `git add explicit/path` | Stage into this session's private index |
 | `git commit -m "..."` | Lock repo, verify, commit through real Git |
 
-### Blocked For Agents In v1
+### Pass Through
+
+| Command | Why |
+|---------|-----|
+| Any non-owned Git command | `commit-queue` is not a Git firewall; it only protects staging and commit boundaries |
+
+Examples: `git clone`, `git fetch`, `git tag`, `git branch`, `git config`, `git checkout`, `git reset`, and future Git commands all pass through to real Git.
+
+### Blocked For Protected Commits In v1
 
 | Command | Why |
 |---------|-----|
@@ -181,16 +175,7 @@ This keeps the protocol explicit. I do not want hidden magic where the tool sile
 | `git commit --no-verify` | It skips repository hooks |
 | `git commit --amend` | It rewrites history |
 | `git commit path/to/file` | It can bypass the private session index |
-| `git branch new-name` | It mutates refs |
-| `git push --force` | It rewrites remote history |
-| `git checkout` | It mutates the shared working tree |
-| `git switch` | It mutates the shared working tree |
-| `git reset` | It can destroy or unstage someone else's work |
-| `git restore` | It can overwrite someone else's work |
-| `git merge` | It mutates history and working tree |
-| `git rebase` | It mutates history and working tree |
-| `git pull` | It hides merge/rebase behind a familiar command |
-| `git stash` | It can hide unrelated work |
+| `git -c ... commit` | Inline config can bypass protected commit assumptions |
 
 Broad commands are not evil. They are just wrong when five agents share one checkout.
 
@@ -306,16 +291,16 @@ shell command
   |
   +-- repo opted out -------------------------> real git
   |
-  +-- read-only command ----------------------> real git
-  |
   +-- git getID ------------------------------> create session + print exports
   |
-  +-- mutation without session ---------------> structured block
+  +-- git add/commit without session ---------> structured block
   |
-  +-- allowed mutation with session ----------> policy engine
+  +-- git add/commit with session ------------> policy engine
                                                   |
                                                   v
                                                 real git with controlled env
+  |
+  +-- any other Git command ------------------> real git
 ```
 
 ## Components
@@ -325,7 +310,7 @@ shell command
 | `bin/git` | Protected shim entrypoint |
 | `bin/hgit` | Raw Git passthrough for interactive humans |
 | `src/cli.ts` | Orchestrates command routing only |
-| `src/command-policy.ts` | SSOT for Git command classification and supported option shapes |
+| `src/command-policy.ts` | SSOT for protected add/commit option shapes |
 | `src/git-runtime.ts` | Resolves real Git, repo root, refs, staged paths, and blobs |
 | `src/session-store.ts` | Creates and loads `COMMIT_QUEUE_ID` metadata and private indexes |
 | `src/repo-lock.ts` | Serializes commit/ref mutation per repo |
@@ -425,7 +410,7 @@ Tests use real temporary Git repositories. No fake Git behavior unless the unit 
 
 | Layer | Target | Tool |
 |-------|--------|------|
-| Unit | Command parsing, config parsing, error formatting | `node:test` |
+| Unit | Command parsing, protected command policy, error formatting | `node:test` |
 | Integration | Shim behavior in temp repos | `node:test`, real Git |
 | Concurrency | Lock and simultaneous commit behavior | Child processes |
 

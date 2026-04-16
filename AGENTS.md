@@ -52,15 +52,8 @@ Read [VISION.md](./VISION.md) before changing behavior.
 
 | Command | Notes |
 |---------|-------|
-| `git status` | Pass through |
-| `git diff` | Pass through |
-| `git log` | Pass through |
-| `git show` | Pass through |
-| `git ls-files` | Pass through |
-| `git branch` | Pass through only for read-only forms |
-| `git push` | Pass through only for non-destructive forms |
-| `git --version` | Pass through |
-| `git help` | Pass through |
+| Non-owned Git commands | Pass through to real Git |
+| Examples | `status`, `diff`, `log`, `show`, `clone`, `fetch`, `tag`, `branch`, `push`, `config`, `checkout`, future Git commands |
 
 ### Protected Commands
 
@@ -70,7 +63,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git add path` | Require session, explicit paths only, stage into session index |
 | `git commit -m "..."` | Require session, lock repo, verify drift, commit |
 
-### Blocked In v1
+### Blocked In Protected Add/Commit Flow
 
 | Command | Error Code |
 |---------|------------|
@@ -84,16 +77,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git commit --no-verify` | `COMMIT_QUEUE_NO_VERIFY_BLOCKED` |
 | `git commit --amend` | `COMMIT_QUEUE_AMEND_BLOCKED` |
 | `git commit path/to/file` | `COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED` |
-| `git branch new-name` | `COMMIT_QUEUE_REF_MUTATION_BLOCKED` |
-| `git push --force` | `COMMIT_QUEUE_UNSAFE_PUSH_BLOCKED` |
-| `git checkout` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
-| `git switch` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
-| `git reset` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
-| `git restore` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
-| `git merge` | `COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED` |
-| `git rebase` | `COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED` |
-| `git pull` | `COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED` |
-| `git stash` | `COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED` |
+| `git -c ... commit` | `COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE` |
 
 ## Error Rules
 
@@ -148,7 +132,7 @@ Use TDD.
 
 | Type | Purpose |
 |------|---------|
-| Unit | Command classification, config parsing, error formatting |
+| Unit | Command parsing, protected policy, error formatting |
 | Integration | Real temp Git repo behavior |
 | Concurrency | Lock and simultaneous commit behavior |
 

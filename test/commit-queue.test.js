@@ -204,33 +204,45 @@ test("add with no explicit paths is blocked", () => {
   }
 });
 
-test("blocked shared-tree and history commands fail before Git mutates", () => {
+test("unowned Git commands pass through without a session", () => {
   const fixture = createFixture();
   try {
-    const commands = [
-      [["checkout", "-b", "other"], "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-      [["merge", "main"], "COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED"],
-      [["stash"], "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-    ];
+    const tag = runCommitQueue(fixture.repo, ["tag", "v1.0.0"], { state: fixture.state });
+    const branch = runCommitQueue(fixture.repo, ["branch", "new-branch"], { state: fixture.state });
+    const config = runCommitQueue(fixture.repo, ["config", "alias.co", "checkout"], { state: fixture.state });
 
-    for (const [args, code] of commands) {
-      const result = runCommitQueue(fixture.repo, args, { state: fixture.state });
-      assert.notEqual(result.status, 0);
-      assert.match(result.stderr, new RegExp(code));
-    }
+    assert.equal(tag.status, 0, tag.stderr);
+    assert.equal(branch.status, 0, branch.stderr);
+    assert.equal(config.status, 0, config.stderr);
+    assert.equal(runRealGit(fixture.repo, ["tag", "--list", "v1.0.0"]).stdout.trim(), "v1.0.0");
+    assert.equal(runRealGit(fixture.repo, ["branch", "--list", "new-branch"]).stdout.trim(), "new-branch");
+    assert.equal(runRealGit(fixture.repo, ["config", "--get", "alias.co"]).stdout.trim(), "checkout");
   } finally {
     fixture.cleanup();
   }
 });
 
-test("branch creation is blocked", () => {
+test("clone passes through from inside a protected repo, including harmless inline config", () => {
   const fixture = createFixture();
   try {
-    const result = runCommitQueue(fixture.repo, ["branch", "new-branch"], { state: fixture.state });
+    const cloneTarget = path.join(fixture.root, "clone-target");
+    const ghStyleCloneTarget = path.join(fixture.root, "gh-style-clone-target");
+    const clone = runCommitQueue(fixture.repo, ["clone", "--depth=1", fixture.repo, cloneTarget], {
+      state: fixture.state,
+    });
+    const ghStyleClone = runCommitQueue(fixture.repo, [
+      "-c",
+      "protocol.version=2",
+      "clone",
+      "--depth=1",
+      fixture.repo,
+      ghStyleCloneTarget,
+    ], { state: fixture.state });
 
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_REF_MUTATION_BLOCKED/);
-    assert.equal(runRealGit(fixture.repo, ["branch", "--list", "new-branch"]).stdout.trim(), "");
+    assert.equal(clone.status, 0, clone.stderr);
+    assert.equal(ghStyleClone.status, 0, ghStyleClone.stderr);
+    assert.equal(existsSync(path.join(cloneTarget, ".git")), true);
+    assert.equal(existsSync(path.join(ghStyleCloneTarget, ".git")), true);
   } finally {
     fixture.cleanup();
   }
@@ -253,66 +265,7 @@ test("push passes through without a session", () => {
   }
 });
 
-test("destructive push forms are blocked", () => {
-  const fixture = createFixture();
-  const remote = createTempDir();
-  try {
-    assert.equal(runRealGit(remote.root, ["init", "--bare"]).status, 0);
-    assert.equal(runRealGit(fixture.repo, ["remote", "add", "origin", remote.root]).status, 0);
-
-    for (const args of [
-      ["push", "--force", "origin", "main"],
-      ["push", "-f", "origin", "main"],
-      ["push", "--force-with-lease", "origin", "main"],
-      ["push", "--no-verify", "origin", "main"],
-      ["push", "--all", "origin"],
-      ["push", "--tags", "origin"],
-      ["push", "--delete", "origin", "main"],
-      ["push", "origin", "+main"],
-      ["push", "origin", ":main"],
-    ]) {
-      const result = runCommitQueue(fixture.repo, args, { state: fixture.state });
-      assert.notEqual(result.status, 0, `${args.join(" ")} should fail`);
-      assert.match(result.stderr, /COMMIT_QUEUE_UNSAFE_PUSH_BLOCKED/);
-    }
-  } finally {
-    fixture.cleanup();
-    remote.cleanup();
-  }
-});
-
-test("config writes are blocked while config reads pass through", () => {
-  const fixture = createFixture();
-  try {
-    const read = runCommitQueue(fixture.repo, ["config", "user.email"], { state: fixture.state });
-    const write = runCommitQueue(fixture.repo, ["config", "alias.co", "checkout"], { state: fixture.state });
-
-    assert.equal(read.status, 0, read.stderr);
-    assert.equal(read.stdout.trim(), "commit-queue@example.test");
-    assert.notEqual(write.status, 0);
-    assert.match(write.stderr, /COMMIT_QUEUE_CONFIG_MUTATION_BLOCKED/);
-    assert.equal(
-      runRealGit(fixture.repo, ["config", "--get", "alias.co"], { allowFailure: true }).stdout.trim(),
-      "",
-    );
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("unsupported mutating commands require a session", () => {
-  const fixture = createFixture();
-  try {
-    const result = runCommitQueue(fixture.repo, ["tag", "v1.0.0"], { state: fixture.state });
-
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("unsupported mutating commands are blocked with a session", () => {
+test("unowned Git commands pass through with a session", () => {
   const fixture = createFixture();
   try {
     const env = activateSession(fixture.repo, fixture.state);
@@ -321,8 +274,8 @@ test("unsupported mutating commands are blocked with a session", () => {
       env,
     });
 
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_UNSUPPORTED_MUTATION_BLOCKED/);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(runRealGit(fixture.repo, ["tag", "--list", "v1.0.0"], { env }).stdout.trim(), "v1.0.0");
   } finally {
     fixture.cleanup();
   }

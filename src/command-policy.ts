@@ -3,32 +3,6 @@ import * as path from "node:path";
 import { matchingGitPaths } from "./git-runtime.js";
 import type { Invocation } from "./types.js";
 
-const BLOCKED_COMMANDS = new Map<string, string>([
-  ["checkout", "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-  ["switch", "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-  ["reset", "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-  ["restore", "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-  ["merge", "COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED"],
-  ["rebase", "COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED"],
-  ["pull", "COMMIT_QUEUE_HISTORY_MUTATION_BLOCKED"],
-  ["stash", "COMMIT_QUEUE_SHARED_TREE_MUTATION_BLOCKED"],
-]);
-
-const PASSTHROUGH_COMMANDS = new Set([
-  "status",
-  "diff",
-  "log",
-  "show",
-  "ls-files",
-  "push",
-  "rev-parse",
-  "help",
-  "--help",
-  "-h",
-  "--version",
-  "version",
-]);
-
 const GLOBAL_OPTIONS_WITH_VALUE = new Set([
   "-C",
   "-c",
@@ -54,19 +28,6 @@ const GLOBAL_OPTIONS_WITHOUT_VALUE = new Set([
   "--paginate",
 ]);
 
-const BRANCH_READ_FLAGS = new Set(["--list", "-l", "--all", "-a", "--remotes", "-r"]);
-const BRANCH_MUTATION_FLAGS = new Set([
-  "--delete",
-  "--move",
-  "--copy",
-  "--set-upstream-to",
-  "--unset-upstream",
-  "--edit-description",
-  "--track",
-  "--set-upstream",
-  "--create-reflog",
-]);
-const CONFIG_READ_FLAGS = new Set(["--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l"]);
 const COMMIT_LONG_OPTIONS_WITH_VALUE = new Set([
   "--message",
   "--file",
@@ -93,10 +54,6 @@ export type UnsafeAddPathspec = {
   reason: "wildcard" | "directory" | "matches_multiple_paths";
   matches?: string[];
 };
-
-export function blockedCommandCode(command: string): string | null {
-  return BLOCKED_COMMANDS.get(command) || null;
-}
 
 export function parseInvocation(args: string[]): Invocation {
   const globalArgs: string[] = [];
@@ -131,59 +88,12 @@ export function parseInvocation(args: string[]): Invocation {
   };
 }
 
-export function isPassthroughCommand(command: string, args: string[]): boolean {
-  if (PASSTHROUGH_COMMANDS.has(command)) return true;
-  if (command === "branch") return isBranchPassthrough(args);
-  return false;
-}
-
-export function isReadInspectionCommand(command: string, args: string[]): boolean {
-  if (command === "config") return isConfigReadOnly(args);
-  if (command === "push") return false;
-  return isPassthroughCommand(command, args);
-}
-
 export function hasGlobalConfigOverride(globalArgs: string[]): boolean {
   return globalArgs.some((arg) => (
     arg === "-c" ||
     arg.startsWith("-c") ||
     arg === "--config-env" ||
     arg.startsWith("--config-env=")
-  ));
-}
-
-export function isConfigReadOnly(args: string[]): boolean {
-  if (args.length === 1 && !args[0]?.startsWith("-")) return true;
-  return args.some((arg) => CONFIG_READ_FLAGS.has(arg));
-}
-
-export function isBranchPassthrough(args: string[]): boolean {
-  if (args.length === 0) return true;
-
-  const hasListMode = args.some((arg) => BRANCH_READ_FLAGS.has(arg));
-  for (const arg of args) {
-    if (isBranchMutationArg(arg)) return false;
-    if (!arg.startsWith("-") && !hasListMode) return false;
-  }
-
-  return true;
-}
-
-export function hasUnsafePush(args: string[]): boolean {
-  return args.some((arg) => (
-    arg === "--force" ||
-    arg === "-f" ||
-    arg === "--delete" ||
-    arg === "-d" ||
-    arg === "--no-verify" ||
-    arg === "--all" ||
-    arg === "--tags" ||
-    arg === "--mirror" ||
-    arg === "--prune" ||
-    arg.startsWith("--force-with-lease") ||
-    arg.startsWith("--force-if-includes") ||
-    arg.startsWith("+") ||
-    arg.startsWith(":")
   ));
 }
 
@@ -318,12 +228,6 @@ function isJoinedGlobalOption(arg: string): boolean {
     arg.startsWith("--work-tree=") ||
     /^-c[^=]+=.*/.test(arg)
   );
-}
-
-function isBranchMutationArg(arg: string): boolean {
-  if (BRANCH_MUTATION_FLAGS.has(arg)) return true;
-  if (arg.startsWith("--set-upstream-to=")) return true;
-  return /^-[^-].*[dDmMcC]/.test(arg);
 }
 
 function isBroadPathspec(arg: string): boolean {

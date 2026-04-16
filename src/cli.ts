@@ -1,15 +1,9 @@
 import {
-  blockedCommandCode,
   hasGlobalConfigOverride,
-  hasUnsafePush,
-  isBranchPassthrough,
-  isPassthroughCommand,
-  isReadInspectionCommand,
   parseInvocation,
 } from "./command-policy.js";
 import { handleAdd } from "./commands/add.js";
 import { handleCommit } from "./commands/commit.js";
-import { handleConfig } from "./commands/config.js";
 import { createSession } from "./commands/get-id.js";
 import { errorPayload, exitWithResult, fail } from "./errors.js";
 import { isRepoOptedOut, resolveRealGit, resolveRepo, runGit } from "./git-runtime.js";
@@ -48,67 +42,14 @@ export function runProtectedGit(args: string[]): void {
     return;
   }
 
-  if (hasGlobalConfigOverride(invocation.globalArgs) && !isReadInspectionCommand(command, invocation.commandArgs)) {
+  if (command === "commit" && hasGlobalConfigOverride(invocation.globalArgs)) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE",
       title: "Unsafe Git config override blocked",
-      detail: "Inline Git config overrides are blocked for protected mutating commands.",
+      detail: "Inline Git config overrides are blocked for protected commits.",
       context: { command, global_args: invocation.globalArgs, repo },
-      suggestions: ["Run the protected command without inline `-c` or `--config-env` overrides."],
+      suggestions: ["Run `git commit` without inline `-c` or `--config-env` overrides."],
       retriable: true,
-    }));
-  }
-
-  if (command === "config") {
-    handleConfig(realGit, repo, args, invocation.commandArgs);
-    return;
-  }
-
-  if (command === "branch" && !isBranchPassthrough(invocation.commandArgs)) {
-    fail(errorPayload({
-      code: "COMMIT_QUEUE_REF_MUTATION_BLOCKED",
-      title: "Reference mutation blocked",
-      detail: "Git branch mutation is blocked in protected mode.",
-      context: { command, args: invocation.commandArgs, repo },
-      suggestions: ["Use read-only branch commands, or ask the human if a branch must be changed."],
-      retriable: false,
-    }));
-  }
-
-  if (command === "push" && hasUnsafePush(invocation.commandArgs)) {
-    fail(errorPayload({
-      code: "COMMIT_QUEUE_UNSAFE_PUSH_BLOCKED",
-      title: "Unsafe push blocked",
-      detail: "Destructive push options are blocked in protected mode.",
-      context: { command, args: invocation.commandArgs, repo },
-      suggestions: [
-        "Use a normal `git push` without force, delete, mirror, prune, or force refspecs.",
-        "If remote history must be rewritten, stop and ask the human.",
-      ],
-      retriable: false,
-    }));
-  }
-
-  if (isPassthroughCommand(command, invocation.commandArgs)) {
-    const env = indexAwareReadEnv(command, repo);
-    if (env) {
-      exitWithResult(runGit(realGit, args, { env }));
-    }
-    exitWithResult(runGit(realGit, args));
-  }
-
-  const blockedCode = blockedCommandCode(command);
-  if (blockedCode) {
-    fail(errorPayload({
-      code: blockedCode,
-      title: "Shared working tree mutation blocked",
-      detail: `Git command '${command}' is blocked in protected mode.`,
-      context: { command, repo },
-      suggestions: [
-        "Use a commit-queue session for `git add path` and `git commit -m`.",
-        "Avoid commands that mutate the shared working tree while agents are active.",
-      ],
-      retriable: false,
     }));
   }
 
@@ -122,15 +63,11 @@ export function runProtectedGit(args: string[]): void {
     return;
   }
 
-  const session = requireSession(command, repo);
-  fail(errorPayload({
-    code: "COMMIT_QUEUE_UNSUPPORTED_MUTATION_BLOCKED",
-    title: "Unsupported mutating command blocked",
-    detail: `Git command '${command}' is not supported by commit-queue protected mode.`,
-    context: { command, repo, session: session.id },
-    suggestions: ["Use `git add path/to/file` and `git commit -m \"message\"` for protected commits."],
-    retriable: false,
-  }));
+  const env = indexAwareReadEnv(command, repo);
+  if (env) {
+    exitWithResult(runGit(realGit, args, { env }));
+  }
+  exitWithResult(runGit(realGit, args));
 }
 
 function indexAwareReadEnv(command: string, repo: string): NodeJS.ProcessEnv | undefined {

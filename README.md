@@ -122,7 +122,7 @@ Opt out a repo:
 }
 ```
 
-Blocked in v1:
+Protected in v1:
 
 ```bash
 git add .
@@ -135,16 +135,9 @@ git commit -a
 git commit --no-verify
 git commit --amend
 git commit path/to/file
-git branch new-name
-git push --force
-git checkout
-git switch
-git reset
-git restore
-git merge
-git rebase
-git pull
-git stash
+git -c core.hooksPath=/dev/null commit -m "..."
 ```
+
+Other Git commands pass through to real Git. `commit-queue` protects staging and commits; it is not a full Git sandbox.
 
 Read the full product contract in [VISION.md](./VISION.md).
