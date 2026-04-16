@@ -96,15 +96,15 @@ Use structured, agent-recoverable errors.
 ```json
 {
   "error_code": "COMMIT_QUEUE_SESSION_REQUIRED",
-  "detail": "Mutating Git command 'add' requires COMMIT_QUEUE_ID.",
+  "detail": "Git command 'add' is protected because you are sharing this checkout with other agents. Start a commit-queue session before staging or committing.",
   "context": {
     "command": "add",
     "repo": "/repo"
   },
   "retriable": true,
   "suggestions": [
-    "Run `eval \"$(git getID)\"` before mutating Git commands.",
-    "Use explicit paths: `git add path/to/file`."
+    "Run `eval \"$(git getID)\"` from this repository, then retry.",
+    "Use explicit paths for staging: `git add path/to/file`."
   ]
 }
 ```

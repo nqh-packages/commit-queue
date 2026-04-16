@@ -350,7 +350,7 @@ COMMIT_QUEUE_JSON=1 git add src/foo.ts
   "type": "https://commit-queue.local/errors/session-required",
   "title": "Commit queue session required",
   "status": 409,
-  "detail": "Mutating Git command 'add' requires COMMIT_QUEUE_ID.",
+  "detail": "Git command 'add' is protected because you are sharing this checkout with other agents. Start a commit-queue session before staging or committing.",
   "error_code": "COMMIT_QUEUE_SESSION_REQUIRED",
   "timestamp": "2026-04-14T00:00:00.000Z",
   "context": {
@@ -359,8 +359,8 @@ COMMIT_QUEUE_JSON=1 git add src/foo.ts
   },
   "retriable": true,
   "suggestions": [
-    "Run `eval \"$(git getID)\"` before mutating Git commands.",
-    "Use explicit paths: `git add path/to/file`."
+    "Run `eval \"$(git getID)\"` from this repository, then retry.",
+    "Use explicit paths for staging: `git add path/to/file`."
   ]
 }
 ```

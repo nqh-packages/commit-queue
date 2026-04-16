@@ -80,7 +80,7 @@ test("git getID creates a shell-activatable session", () => {
   }
 });
 
-test("mutating commands are blocked without a session", () => {
+test("protected commands explain why a session is required", () => {
   const fixture = createFixture();
   try {
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
@@ -89,6 +89,8 @@ test("mutating commands are blocked without a session", () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.match(result.stderr, /sharing this checkout with other agents/);
+    assert.match(result.stderr, /eval "\$\(git getID\)"/);
     assert.match(result.stderr, /context:/);
     assert.match(result.stderr, /"command": "add"/);
     assert.match(result.stderr, /retriable: true/);
@@ -143,6 +145,7 @@ test("JSON error mode returns structured agent-recoverable errors", () => {
     assert.equal(error.error_code, "COMMIT_QUEUE_SESSION_REQUIRED");
     assert.equal(error.retriable, true);
     assert.equal(error.context.command, "add");
+    assert.match(error.detail, /sharing this checkout with other agents/);
     assert.match(error.suggestions.join("\n"), /git getID/);
     assert.doesNotMatch(JSON.stringify(error), /hgit/);
   } finally {
