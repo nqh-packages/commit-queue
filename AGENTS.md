@@ -27,7 +27,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Opt-out file | `.commit-queue.json` with `{ "enabled": false }` |
 | Session command | `eval "$(git getID)"` |
 | Session env vars | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
-| Agent attribution | `git getID` requires detected or explicit coding-agent identity |
+| Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
 | Commit trailers | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` |
 | Staging | Explicit paths only |
 | Index isolation | `GIT_INDEX_FILE` per session |
@@ -168,6 +168,7 @@ Use TDD.
 | Tests | Use built-in `node:test` unless a stronger reason appears |
 | Orchestration | Keep `src/cli.ts` as the command router, not a behavior dump |
 | Command policy | Keep Git command classification in `src/command-policy.ts` as the SSOT |
+| Agent identity | Keep platform-specific detection in `src/agent-adapters.ts`; keep `COMMIT_QUEUE_AGENT` and `COMMIT_QUEUE_AGENT_SESSION` as the platform-agnostic fallback |
 | File writes | Atomic write pattern for session state |
 | Paths | Normalize through Git root-relative paths |
 | Real Git | Resolve once; avoid recursive shim calls |

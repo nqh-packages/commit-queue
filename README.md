@@ -25,6 +25,16 @@ export COMMIT_QUEUE_AGENT_SESSION="codex-917838637383"
 eval "$(git getID)"
 ```
 
+Both explicit variables are required. `COMMIT_QUEUE_AGENT_SESSION` alone is not enough because commit attribution needs the coding platform name and the platform session id.
+
+Built-in identity adapters:
+
+| Adapter | Env |
+|---------|-----|
+| `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
+| `codex` | `CODEX_THREAD_ID` |
+| `opencode` | `OPENCODE_SESSION_ID` |
+
 Human flow, from an interactive terminal:
 
 ```bash

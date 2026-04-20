@@ -96,7 +96,7 @@ Just one shim.
 | Opt-out | `.commit-queue.json` with `{ "enabled": false }` |
 | Session command | `eval "$(git getID)"` |
 | Session identity | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
-| Agent attribution | `git getID` requires detected or explicit coding-agent identity |
+| Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
 | Commit attribution | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` trailers |
 | Staging | Explicit file paths only |
 | Staging isolation | One Git index per session through `GIT_INDEX_FILE` |
@@ -157,6 +157,17 @@ Coding-Agent-Session: codex-019da855-918f-7880-a76d-8f1937136f86
 ```
 
 Agents cannot supply those reserved trailer keys themselves. `commit-queue` owns them so commit history stays auditable instead of prompt-dependent.
+
+Agent detection is intentionally adapter-based:
+
+| Adapter | Env |
+|---------|-----|
+| `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
+| `codex` | `CODEX_THREAD_ID` |
+| `opencode` | `OPENCODE_SESSION_ID` |
+
+The core contract is still platform-agnostic. New platforms add a small adapter; unsupported platforms use the explicit env adapter.
+The explicit adapter requires both values because the agent name identifies the coding platform and the session id identifies the platform run.
 
 ## Safety Rules
 
@@ -329,7 +340,8 @@ shell command
 | `src/command-policy.ts` | SSOT for protected add/commit option shapes |
 | `src/git-runtime.ts` | Resolves real Git, repo root, refs, staged paths, and blobs |
 | `src/session-store.ts` | Creates and loads `COMMIT_QUEUE_ID` metadata and private indexes |
-| `src/agent-identity.ts` | Detects and validates coding-agent attribution |
+| `src/agent-adapters.ts` | Registry for platform-specific agent identity detection |
+| `src/agent-identity.ts` | Validates detected coding-agent attribution and formats recovery errors |
 | `src/repo-lock.ts` | Serializes commit/ref mutation per repo |
 | `src/commands/*` | Owns behavior for supported protected commands |
 | `src/errors.ts` | Prints structured agent-readable failures |

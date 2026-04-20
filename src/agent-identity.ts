@@ -1,56 +1,28 @@
+import {
+  checkedAgentIdentityEnv,
+  detectAgentIdentityFromEnv,
+  supportedAgentAdapters,
+} from "./agent-adapters.js";
 import { errorPayload, fail } from "./errors.js";
 import type { AgentIdentity, CommitQueueSession } from "./types.js";
 
-const EXPLICIT_AGENT_ENV = "COMMIT_QUEUE_AGENT";
-const EXPLICIT_AGENT_SESSION_ENV = "COMMIT_QUEUE_AGENT_SESSION";
-const CODEX_THREAD_ENV = "CODEX_THREAD_ID";
-const OPENCODE_SESSION_ENV = "OPENCODE_SESSION_ID";
 const MAX_AGENT_SESSION_LENGTH = 256;
 
 export function detectAgentIdentity(command: string, repo: string): AgentIdentity {
-  const explicitAgent = optionalEnv(EXPLICIT_AGENT_ENV);
-  const explicitSession = optionalEnv(EXPLICIT_AGENT_SESSION_ENV);
-  if (explicitAgent || explicitSession) {
-    if (!explicitAgent || !explicitSession) {
-      fail(agentIdentityRequiredError(command, repo, {
-        reason: "explicit_agent_identity_incomplete",
-        required_env: [EXPLICIT_AGENT_ENV, EXPLICIT_AGENT_SESSION_ENV],
-      }));
-    }
-
-    return validateAgentIdentity(command, repo, {
-      name: explicitAgent,
-      sessionId: explicitSession,
-      detectedFrom: EXPLICIT_AGENT_ENV,
-    });
+  const detection = detectAgentIdentityFromEnv();
+  if (detection.status === "detected") {
+    return validateAgentIdentity(command, repo, detection.agent);
   }
 
-  const codexThreadId = optionalEnv(CODEX_THREAD_ENV);
-  if (codexThreadId) {
-    return validateAgentIdentity(command, repo, {
-      name: "codex",
-      sessionId: `codex-${codexThreadId}`,
-      detectedFrom: CODEX_THREAD_ENV,
-    });
+  if (detection.status === "blocked") {
+    fail(agentIdentityRequiredError(command, repo, {
+      adapter: detection.adapter,
+      reason: detection.reason,
+      ...detection.context,
+    }));
   }
 
-  const opencodeSessionId = optionalEnv(OPENCODE_SESSION_ENV);
-  if (opencodeSessionId) {
-    return validateAgentIdentity(command, repo, {
-      name: "opencode",
-      sessionId: `opencode-${opencodeSessionId}`,
-      detectedFrom: OPENCODE_SESSION_ENV,
-    });
-  }
-
-  fail(agentIdentityRequiredError(command, repo, {
-    checked_env: [
-      EXPLICIT_AGENT_ENV,
-      EXPLICIT_AGENT_SESSION_ENV,
-      CODEX_THREAD_ENV,
-      OPENCODE_SESSION_ENV,
-    ],
-  }));
+  fail(agentIdentityRequiredError(command, repo, {}));
 }
 
 export function requireAgentIdentity(command: string, repo: string, session: CommitQueueSession): AgentIdentity {
@@ -91,19 +63,84 @@ function agentIdentityRequiredError(command: string, repo: string, context: Reco
   return errorPayload({
     code: "COMMIT_QUEUE_AGENT_ID_REQUIRED",
     title: "Coding agent identity required",
-    detail: "Protected commit-queue sessions require a coding agent identity so commits can be traced back to the agent session that produced them.",
-    context: { command, repo, cwd: process.cwd(), ...context },
-    suggestions: [
-      "Run `git getID` from a supported coding agent session.",
-      "For unsupported agents, set COMMIT_QUEUE_AGENT and COMMIT_QUEUE_AGENT_SESSION before running `git getID`.",
-    ],
+    detail: agentIdentityRequiredDetail(context),
+    context: {
+      command,
+      repo,
+      cwd: process.cwd(),
+      supported_agents: supportedAgentAdapters(),
+      checked_env: checkedAgentIdentityEnv(),
+      examples: agentIdentityRecoveryExamples(),
+      ...context,
+    },
+    suggestions: agentIdentityRequiredSuggestions(context),
     retriable: true,
   });
 }
 
-function optionalEnv(name: string): string | null {
-  const value = process.env[name]?.trim();
-  return value ? value : null;
+function agentIdentityRequiredDetail(context: Record<string, unknown>): string {
+  const missingEnv = context.missing_env;
+  const receivedEnv = context.received_env;
+  if (
+    Array.isArray(missingEnv) &&
+    Array.isArray(receivedEnv) &&
+    missingEnv.includes("COMMIT_QUEUE_AGENT") &&
+    receivedEnv.includes("COMMIT_QUEUE_AGENT_SESSION")
+  ) {
+    return "COMMIT_QUEUE_AGENT_SESSION alone is not enough. Protected commit-queue sessions also require COMMIT_QUEUE_AGENT so commit attribution records both the coding platform and the platform session id.";
+  }
+
+  if (
+    Array.isArray(missingEnv) &&
+    Array.isArray(receivedEnv) &&
+    missingEnv.includes("COMMIT_QUEUE_AGENT_SESSION") &&
+    receivedEnv.includes("COMMIT_QUEUE_AGENT")
+  ) {
+    return "COMMIT_QUEUE_AGENT is set, but COMMIT_QUEUE_AGENT_SESSION is missing. Protected commit-queue sessions require both values so commit attribution records the coding platform and the platform session id.";
+  }
+
+  return "Protected commit-queue sessions require a coding agent identity so commits can be traced back to the agent session that produced them.";
+}
+
+function agentIdentityRequiredSuggestions(context: Record<string, unknown>): string[] {
+  if (context.reason === "explicit_agent_identity_incomplete") {
+    return [
+      ...agentIdentityRecoveryExamples().map(formatAgentIdentityExample),
+      "If this agent has a supported built-in adapter, run `git getID` from that agent environment without overriding COMMIT_QUEUE_AGENT or COMMIT_QUEUE_AGENT_SESSION.",
+    ];
+  }
+
+  return [
+    "Run `git getID` from a supported coding agent session.",
+    ...agentIdentityRecoveryExamples().map(formatAgentIdentityExample),
+  ];
+}
+
+function agentIdentityRecoveryExamples(): Array<Record<string, string>> {
+  return [
+    {
+      label: "unsupported agent",
+      description: "Set both explicit identity variables before starting a commit-queue session.",
+      command: "export COMMIT_QUEUE_AGENT=\"claude-code\"; export COMMIT_QUEUE_AGENT_SESSION=\"claude-code-abc123\"; eval \"$(git getID)\"",
+    },
+    {
+      label: "Codex",
+      description: "Run from Codex so CODEX_THREAD_ID is present.",
+      command: "eval \"$(git getID)\"",
+      detected_env: "CODEX_THREAD_ID",
+    },
+    {
+      label: "OpenCode",
+      description: "Run from OpenCode so OPENCODE_SESSION_ID is present.",
+      command: "eval \"$(git getID)\"",
+      detected_env: "OPENCODE_SESSION_ID",
+    },
+  ];
+}
+
+function formatAgentIdentityExample(example: Record<string, string>): string {
+  const detectedEnv = example.detected_env ? ` Detected env: ${example.detected_env}.` : "";
+  return `Example ${example.label}: ${example.description}${detectedEnv} Run: \`${example.command}\`.`;
 }
 
 function normalizeAgentName(value: string): string | null {

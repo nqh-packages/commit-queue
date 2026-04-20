@@ -108,7 +108,71 @@ test("git getID requires a coding agent identity", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
     assert.match(result.stderr, /Protected commit-queue sessions require a coding agent identity/);
+    assert.match(result.stderr, /"supported_agents": \[/);
+    assert.match(result.stderr, /"codex"/);
+    assert.match(result.stderr, /"opencode"/);
     assert.doesNotMatch(result.stderr, /hgit/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("git getID explains why explicit agent session alone is not enough", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["getID"], {
+      state: fixture.state,
+      env: {
+        CODEX_THREAD_ID: "",
+        COMMIT_QUEUE_AGENT: "",
+        COMMIT_QUEUE_AGENT_SESSION: "custom-session",
+        OPENCODE_SESSION_ID: "",
+      },
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_SESSION alone is not enough/);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT/);
+    assert.match(result.stderr, /"missing_env": \[/);
+    assert.match(result.stderr, /"COMMIT_QUEUE_AGENT"/);
+    assert.match(result.stderr, /export COMMIT_QUEUE_AGENT=/);
+    assert.match(result.stderr, /Example unsupported agent/);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT="claude-code"/);
+    assert.match(result.stderr, /Example Codex/);
+    assert.match(result.stderr, /CODEX_THREAD_ID/);
+    assert.match(result.stderr, /Example OpenCode/);
+    assert.match(result.stderr, /OPENCODE_SESSION_ID/);
+    assert.doesNotMatch(result.stderr, /hgit/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("JSON agent identity errors include recovery examples", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["getID"], {
+      state: fixture.state,
+      env: {
+        CODEX_THREAD_ID: "",
+        COMMIT_QUEUE_AGENT: "",
+        COMMIT_QUEUE_AGENT_SESSION: "custom-session",
+        COMMIT_QUEUE_JSON: "1",
+        OPENCODE_SESSION_ID: "",
+      },
+    });
+
+    assert.notEqual(result.status, 0);
+    const error = JSON.parse(result.stderr);
+    assert.equal(error.error_code, "COMMIT_QUEUE_AGENT_ID_REQUIRED");
+    assert.equal(error.context.reason, "explicit_agent_identity_incomplete");
+    assert.deepEqual(error.context.missing_env, ["COMMIT_QUEUE_AGENT"]);
+    assert.deepEqual(error.context.examples.map((example) => example.label), [
+      "unsupported agent",
+      "Codex",
+      "OpenCode",
+    ]);
+    assert.match(error.suggestions.join("\n"), /Example unsupported agent/);
   } finally {
     fixture.cleanup();
   }
