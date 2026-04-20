@@ -7,6 +7,7 @@ import { handleCommit } from "./commands/commit.js";
 import { createSession } from "./commands/get-id.js";
 import { errorPayload, exitWithResult, fail } from "./errors.js";
 import { isRepoOptedOut, resolveRealGit, resolveRepo, runGit } from "./git-runtime.js";
+import { assertNoFailedInstallRefresh } from "./install-refresh-guard.js";
 import { requireSession } from "./session-guard.js";
 
 export function runProtectedGit(args: string[]): void {
@@ -54,11 +55,13 @@ export function runProtectedGit(args: string[]): void {
   }
 
   if (command === "add") {
+    assertNoFailedInstallRefresh(command, repo);
     handleAdd(realGit, repo, invocation.commandArgs, invocation.globalArgs);
     return;
   }
 
   if (command === "commit") {
+    assertNoFailedInstallRefresh(command, repo);
     handleCommit(realGit, repo, invocation.commandArgs);
     return;
   }

@@ -98,6 +98,8 @@ Just one shim.
 | Session identity | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
 | Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
 | Commit attribution | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` trailers |
+| Installed runtime refresh | This repo refreshes `~/.commit-queue` from committed `HEAD` after commit, merge, and checkout |
+| Refresh failure | Failed refresh writes a stale marker; protected mutations in this repo block until install refresh succeeds |
 | Staging | Explicit file paths only |
 | Staging isolation | One Git index per session through `GIT_INDEX_FILE` |
 | Commit safety | Repo lock, staged-path check, drift check, `HEAD` check |
@@ -458,6 +460,7 @@ Tests use real temporary Git repositories. No fake Git behavior unless the unit 
 | Opt-out | Repo config disables wrapper behavior |
 | Human passthrough | Non-interactive shells are blocked |
 | Error structure | Blocked command includes code and suggestions |
+| Runtime refresh enforcement | Failed installed-runtime refresh blocks protected mutations until the refresh succeeds |
 
 ## Implementation Constraints
 

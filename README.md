@@ -118,6 +118,8 @@ npm test
 npm run test:coverage
 ```
 
+`npm run install:local` also configures this repository's `.githooks`. After `post-commit`, `post-merge`, and `post-checkout`, the hook rebuilds and reinstalls the committed `HEAD` runtime into `~/.commit-queue`. If that refresh fails, protected `git add` and `git commit` in this repo block until the refresh succeeds.
+
 Agent flow:
 
 ```bash

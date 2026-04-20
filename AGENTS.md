@@ -29,6 +29,8 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Session env vars | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
 | Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
 | Commit trailers | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` |
+| Installed runtime refresh | This repo installs `.githooks` for `post-commit`, `post-merge`, and `post-checkout`; hooks rebuild and reinstall the committed `HEAD` runtime |
+| Refresh failure behavior | A failed runtime refresh writes a stale marker and protected `git add`/`git commit` block until refresh succeeds |
 | Staging | Explicit paths only |
 | Index isolation | `GIT_INDEX_FILE` per session |
 | Commit safety | Per-repo lock, drift check, HEAD check |
@@ -47,6 +49,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Do not auto-merge conflicts | Ambiguous content must block |
 | Do not delete `~/.commit-queue/` state by hand | Locks self-heal; manual deletion can break active commits |
 | Do not add runtime dependencies without approval | Tool must stay tiny and shareable |
+| Do not bypass the runtime refresh hooks in this repo | Installed shim drift breaks the product contract |
 
 ## Command Policy
 

@@ -9,6 +9,7 @@ export type StatePaths = {
   indexes: string;
   locks: string;
   logs: string;
+  staleInstalls: string;
 };
 
 export function statePaths(): StatePaths {
@@ -19,6 +20,7 @@ export function statePaths(): StatePaths {
     indexes: path.join(root, "indexes"),
     locks: path.join(root, "locks"),
     logs: path.join(root, "logs"),
+    staleInstalls: path.join(root, "stale-installs"),
   };
 }
 
@@ -27,7 +29,7 @@ export function sessionIndexPath(id: string): string {
 }
 
 export function ensureStateDirs(state = statePaths()): void {
-  for (const dir of [state.root, state.sessions, state.indexes, state.locks, state.logs]) {
+  for (const dir of [state.root, state.sessions, state.indexes, state.locks, state.logs, state.staleInstalls]) {
     mkdirSync(dir, { recursive: true });
   }
 }

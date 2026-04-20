@@ -198,6 +198,32 @@ test("protected commands explain why a session is required", () => {
   }
 });
 
+test("protected mutations are blocked while installed runtime refresh marker exists", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    const markerDir = path.join(fixture.state, "stale-installs");
+    mkdirSync(markerDir, { recursive: true });
+    writeFileSync(path.join(markerDir, `${createHash("sha256").update(fixture.repo).digest("hex").slice(0, 24)}.json`), JSON.stringify({
+      repo: fixture.repo,
+      head: "abc123",
+      hook: "post-commit",
+      failedAt: "2026-04-20T00:00:00.000Z",
+      reason: "build failed",
+    }));
+
+    const result = runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_INSTALL_REFRESH_FAILED/);
+    assert.match(result.stderr, /runtime refresh failed/);
+    assert.equal(runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("mutating commands are protected when repo is selected with global Git options", () => {
   const fixture = createFixture();
   const outside = createTempDir();
