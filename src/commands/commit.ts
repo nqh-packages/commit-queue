@@ -1,4 +1,5 @@
-import { inspectCommitArgs } from "../command-policy.js";
+import { requireAgentIdentity } from "../agent-identity.js";
+import { firstReservedCommitTrailer, inspectCommitArgs } from "../command-policy.js";
 import { errorPayload, exitWithResult, fail } from "../errors.js";
 import { currentHead, currentHeadRef, listStagedPaths, runGit, worktreeBlob } from "../git-runtime.js";
 import { withRepoLock } from "../repo-lock.js";
@@ -61,6 +62,8 @@ export function handleCommit(realGit: string, repo: string, args: string[]): voi
     }));
   }
 
+  assertNoReservedAttributionTrailers(args, repo, session.id);
+
   withRepoLock(repo, () => {
     commitWithFreshSession(realGit, repo, args, session.id);
   });
@@ -75,8 +78,9 @@ function commitWithFreshSession(realGit: string, repo: string, args: string[], s
   assertNoHeadDrift(realGit, repo, freshSession);
   assertSessionHasExpectedStagedPaths(realGit, repo, freshSession);
   assertNoFileDrift(realGit, repo, freshSession);
+  const agent = requireAgentIdentity("commit", repo, freshSession);
 
-  const commit = runGit(realGit, ["commit", ...args], {
+  const commit = runGit(realGit, ["commit", ...args, ...attributionTrailerArgs(freshSession.id, agent)], {
     cwd: repo,
     env: { GIT_INDEX_FILE: freshSession.indexPath },
   });
@@ -90,6 +94,43 @@ function commitWithFreshSession(realGit: string, repo: string, args: string[], s
   freshSession.stagedPaths = {};
   saveSession(freshSession);
   exitWithResult(commit);
+}
+
+function assertNoReservedAttributionTrailers(args: string[], repo: string, sessionId: string): void {
+  const trailer = firstReservedCommitTrailer(args);
+  if (!trailer) return;
+
+  fail(errorPayload({
+    code: "COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED",
+    title: "Reserved commit trailer blocked",
+    detail: "Commit-queue attribution trailers are reserved for commit-queue attribution and cannot be supplied by command args.",
+    context: {
+      command: "commit",
+      repo,
+      session: sessionId,
+      trailer_key: trailer.key,
+      trailer_arg: trailer.arg,
+    },
+    suggestions: [
+      "Remove the reserved `--trailer` argument and retry the commit.",
+      "Use the commit message body for normal notes; commit-queue will add attribution trailers automatically.",
+    ],
+    retriable: true,
+  }));
+}
+
+function attributionTrailerArgs(
+  sessionId: string,
+  agent: { name: string; sessionId: string },
+): string[] {
+  return [
+    "--trailer",
+    `Commit-Queue-Session: ${sessionId}`,
+    "--trailer",
+    `Coding-Agent: ${agent.name}`,
+    "--trailer",
+    `Coding-Agent-Session: ${agent.sessionId}`,
+  ];
 }
 
 function assertNoHeadDrift(realGit: string, repo: string, session: CommitQueueSession): void {

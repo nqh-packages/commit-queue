@@ -20,6 +20,12 @@ export type StagedPath = {
   addedAt: string;
 };
 
+export type AgentIdentity = {
+  name: string;
+  sessionId: string;
+  detectedFrom: string;
+};
+
 export type CommitQueueSession = {
   id: string;
   repo: string;
@@ -27,6 +33,7 @@ export type CommitQueueSession = {
   headRef: string | null;
   indexPath: string;
   createdAt: string;
+  agent: AgentIdentity;
   stagedPaths: Record<string, StagedPath>;
 };
 

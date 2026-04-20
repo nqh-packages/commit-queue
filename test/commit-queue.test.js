@@ -61,20 +61,54 @@ test("outside Git repos, getID is blocked", () => {
 test("git getID creates a shell-activatable session", () => {
   const fixture = createFixture();
   try {
-    const result = runCommitQueue(fixture.repo, ["getID"], { state: fixture.state });
+    const result = runCommitQueue(fixture.repo, ["getID"], {
+      state: fixture.state,
+      env: { CODEX_THREAD_ID: "019da855-918f-7880-a76d-8f1937136f86" },
+    });
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /export COMMIT_QUEUE_ID="cq_/);
     assert.match(result.stdout, /export COMMIT_QUEUE_REPO="/);
+    assert.match(result.stdout, /export COMMIT_QUEUE_AGENT="codex"/);
+    assert.match(result.stdout, /export COMMIT_QUEUE_AGENT_SESSION="codex-019da855-918f-7880-a76d-8f1937136f86"/);
 
-    const env = activateSession(fixture.repo, fixture.state);
-    const sessionPath = path.join(fixture.state, "sessions", `${env.COMMIT_QUEUE_ID}.json`);
+    const id = result.stdout.match(/export COMMIT_QUEUE_ID="([^"]+)"/)?.[1];
+    assert.match(id, /^cq_/);
+
+    const sessionPath = path.join(fixture.state, "sessions", `${id}.json`);
     assert.equal(existsSync(sessionPath), true);
 
     const session = JSON.parse(readFileSync(sessionPath, "utf8"));
     assert.equal(session.repo, fixture.repo);
-    assert.equal(session.id, env.COMMIT_QUEUE_ID);
+    assert.equal(session.id, id);
     assert.match(session.head, /^[0-9a-f]{40}$/);
+    assert.deepEqual(session.agent, {
+      name: "codex",
+      sessionId: "codex-019da855-918f-7880-a76d-8f1937136f86",
+      detectedFrom: "CODEX_THREAD_ID",
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("git getID requires a coding agent identity", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["getID"], {
+      state: fixture.state,
+      env: {
+        CODEX_THREAD_ID: "",
+        COMMIT_QUEUE_AGENT: "",
+        COMMIT_QUEUE_AGENT_SESSION: "",
+        OPENCODE_SESSION_ID: "",
+      },
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
+    assert.match(result.stderr, /Protected commit-queue sessions require a coding agent identity/);
+    assert.doesNotMatch(result.stderr, /hgit/);
   } finally {
     fixture.cleanup();
   }
@@ -435,8 +469,40 @@ test("clean session commit creates a real commit without polluting the shared in
 
     assert.equal(commit.status, 0, commit.stderr);
     assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: add a");
+    const message = runRealGit(fixture.repo, ["log", "-1", "--format=%B"]).stdout;
+    assert.match(message, new RegExp(`Commit-Queue-Session: ${env.COMMIT_QUEUE_ID}`));
+    assert.match(message, /Coding-Agent: codex/);
+    assert.match(message, /Coding-Agent-Session: codex-test-session/);
     assert.equal(runRealGit(fixture.repo, ["status", "--short"]).stdout.trim(), "");
     assert.deepEqual(readdirSync(path.join(fixture.state, "locks")), []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit blocks reserved attribution trailers from command args", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    for (const args of [
+      ["commit", "-m", "test: spoof", "--trailer", "Coding-Agent: human"],
+      ["commit", "-m", "test: spoof", "--trailer=Commit-Queue-Session: cq_fake"],
+      ["commit", "-m", "test: spoof", "--trailer", "coding-agent-session=codex-fake"],
+    ]) {
+      const result = runCommitQueue(fixture.repo, args, {
+        state: fixture.state,
+        env,
+      });
+
+      assert.notEqual(result.status, 0, `${args.join(" ")} should fail`);
+      assert.match(result.stderr, /COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED/);
+      assert.match(result.stderr, /reserved for commit-queue attribution/);
+    }
+
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
   } finally {
     fixture.cleanup();
   }
@@ -587,6 +653,31 @@ test("commit with no staged paths is blocked", () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /COMMIT_QUEUE_NOTHING_STAGED/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit blocks sessions without coding agent metadata", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const sessionPath = path.join(fixture.state, "sessions", `${env.COMMIT_QUEUE_ID}.json`);
+    const session = JSON.parse(readFileSync(sessionPath, "utf8"));
+    delete session.agent;
+    writeFileSync(sessionPath, `${JSON.stringify(session, null, 2)}\n`);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "-m", "test: missing attribution"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
   } finally {
     fixture.cleanup();
   }

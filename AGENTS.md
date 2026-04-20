@@ -26,7 +26,9 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Default scope | Enabled for all Git repos |
 | Opt-out file | `.commit-queue.json` with `{ "enabled": false }` |
 | Session command | `eval "$(git getID)"` |
-| Session env vars | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO` |
+| Session env vars | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
+| Agent attribution | `git getID` requires detected or explicit coding-agent identity |
+| Commit trailers | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` |
 | Staging | Explicit paths only |
 | Index isolation | `GIT_INDEX_FILE` per session |
 | Commit safety | Per-repo lock, drift check, HEAD check |
@@ -61,7 +63,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 |---------|-------------------|
 | `git getID` | Create session, print shell exports |
 | `git add path` | Require session, explicit paths only, stage into session index |
-| `git commit -m "..."` | Require session, lock repo, verify drift, commit |
+| `git commit -m "..."` | Require session, lock repo, verify drift, append attribution trailers, commit |
 
 ### Blocked In Protected Add/Commit Flow
 
@@ -78,6 +80,8 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git commit --amend` | `COMMIT_QUEUE_AMEND_BLOCKED` |
 | `git commit path/to/file` | `COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED` |
 | `git -c ... commit` | `COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE` |
+| `git commit --trailer "Coding-Agent: ..."` | `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED` |
+| `git getID` without agent identity | `COMMIT_QUEUE_AGENT_ID_REQUIRED` |
 
 ## Error Rules
 
@@ -143,9 +147,11 @@ Use TDD.
 | Commit without session | Blocked |
 | Add without session | Blocked |
 | `git getID` | Prints valid shell exports |
+| `git getID` without agent identity | Blocked |
 | Explicit add | Uses session index |
 | Broad add, directory add, glob add | Blocked |
-| Commit after clean add | Creates commit |
+| Commit after clean add | Creates commit with attribution trailers |
+| Reserved attribution trailer | Blocked before Git commit |
 | Commit pathspec | Blocked before Git can bypass session index |
 | File drift after add | Blocked |
 | `HEAD` drift | Blocked |
@@ -184,7 +190,7 @@ The real Git path must never resolve back to the shim.
 
 | State | Location | Notes |
 |-------|----------|-------|
-| Session metadata | `~/.commit-queue/sessions/{id}.json` | Repo, created time, parent `HEAD`, staged paths |
+| Session metadata | `~/.commit-queue/sessions/{id}.json` | Repo, created time, parent `HEAD`, agent identity, staged paths |
 | Session index | `~/.commit-queue/indexes/{id}.index` | Used through `GIT_INDEX_FILE` |
 | Repo lock | `~/.commit-queue/locks/{repoHash}.lock` | Held only during commit/ref mutation; includes owner metadata |
 | Event log | `~/.commit-queue/logs/events.jsonl` | Structured audit trail |

@@ -66,21 +66,28 @@ export function runRealGit(repo, args, options = {}) {
   });
 }
 
-export function activateSession(repo, state) {
-  const result = runCommitQueue(repo, ["getID"], { state });
+export function activateSession(repo, state, agentEnv = defaultAgentEnv()) {
+  const result = runCommitQueue(repo, ["getID"], { state, env: agentEnv });
   assert.equal(result.status, 0, result.stderr);
 
-  const env = {};
+  const exports = {};
   for (const line of result.stdout.trim().split("\n")) {
     const match = line.match(/^export (COMMIT_QUEUE_[A-Z_]+)="([^"]*)"$/);
     if (match) {
-      env[match[1]] = match[2];
+      exports[match[1]] = match[2];
     }
   }
 
-  assert.match(env.COMMIT_QUEUE_ID, /^cq_/);
-  assert.equal(env.COMMIT_QUEUE_REPO, repo);
-  return env;
+  assert.match(exports.COMMIT_QUEUE_ID, /^cq_/);
+  assert.equal(exports.COMMIT_QUEUE_REPO, repo);
+  return exports;
+}
+
+export function defaultAgentEnv() {
+  return {
+    COMMIT_QUEUE_AGENT: "codex",
+    COMMIT_QUEUE_AGENT_SESSION: "codex-test-session",
+  };
 }
 
 export function sessionIndexPath(state, sessionId) {

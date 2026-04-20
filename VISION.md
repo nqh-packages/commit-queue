@@ -95,7 +95,9 @@ Just one shim.
 | Default scope | Enabled for every Git repo |
 | Opt-out | `.commit-queue.json` with `{ "enabled": false }` |
 | Session command | `eval "$(git getID)"` |
-| Session identity | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO` |
+| Session identity | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
+| Agent attribution | `git getID` requires detected or explicit coding-agent identity |
+| Commit attribution | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` trailers |
 | Staging | Explicit file paths only |
 | Staging isolation | One Git index per session through `GIT_INDEX_FILE` |
 | Commit safety | Repo lock, staged-path check, drift check, `HEAD` check |
@@ -138,10 +140,23 @@ No ID:
 With ID:
   this session gets its own index
   this session owns its staged paths
+  this session records which coding-agent session created it
   this session gets clear errors when something changed
 ```
 
 This keeps the protocol explicit. I do not want hidden magic where the tool silently guesses which agent is which and then I debug ghosts later.
+
+`COMMIT_QUEUE_ID` is the isolation ID. The coding-agent session is attribution metadata. They are intentionally separate because one agent conversation can need multiple fresh queue sessions across branches, repos, or drift recovery.
+
+Protected commits add native Git trailers:
+
+```text
+Commit-Queue-Session: cq_20260414_ab12
+Coding-Agent: codex
+Coding-Agent-Session: codex-019da855-918f-7880-a76d-8f1937136f86
+```
+
+Agents cannot supply those reserved trailer keys themselves. `commit-queue` owns them so commit history stays auditable instead of prompt-dependent.
 
 ## Safety Rules
 
@@ -149,9 +164,9 @@ This keeps the protocol explicit. I do not want hidden magic where the tool sile
 
 | Command | Behavior |
 |---------|----------|
-| `git getID` | Creates a session and prints shell exports |
+| `git getID` | Detects agent identity, creates a session, and prints shell exports |
 | `git add explicit/path` | Stage into this session's private index |
-| `git commit -m "..."` | Lock repo, verify, commit through real Git |
+| `git commit -m "..."` | Lock repo, verify, append attribution trailers, commit through real Git |
 
 ### Pass Through
 
@@ -176,6 +191,7 @@ Examples: `git clone`, `git fetch`, `git tag`, `git branch`, `git config`, `git 
 | `git commit --amend` | It rewrites history |
 | `git commit path/to/file` | It can bypass the private session index |
 | `git -c ... commit` | Inline config can bypass protected commit assumptions |
+| `git commit --trailer "Coding-Agent: ..."` | Attribution trailers are owned by `commit-queue` |
 
 Broad commands are not evil. They are just wrong when five agents share one checkout.
 
@@ -313,6 +329,7 @@ shell command
 | `src/command-policy.ts` | SSOT for protected add/commit option shapes |
 | `src/git-runtime.ts` | Resolves real Git, repo root, refs, staged paths, and blobs |
 | `src/session-store.ts` | Creates and loads `COMMIT_QUEUE_ID` metadata and private indexes |
+| `src/agent-identity.ts` | Detects and validates coding-agent attribution |
 | `src/repo-lock.ts` | Serializes commit/ref mutation per repo |
 | `src/commands/*` | Owns behavior for supported protected commands |
 | `src/errors.ts` | Prints structured agent-readable failures |
@@ -383,7 +400,7 @@ Agent-facing errors must not mention `hgit` or bypass commands.
 
 | State | Purpose |
 |-------|---------|
-| Session JSON | Repo, session ID, created time, starting `HEAD`, staged paths |
+| Session JSON | Repo, session ID, created time, starting `HEAD`, agent identity, staged paths |
 | Session index | Private Git index for that agent |
 | Repo lock | Prevents simultaneous commit/ref mutation |
 | Event log | Debug trail for humans |
@@ -393,11 +410,13 @@ Agent-facing errors must not mention `hgit` or bypass commands.
 | Scenario | Expected Result |
 |----------|-----------------|
 | Agent runs `git add src/a.ts` without session | Block |
-| Agent runs `eval "$(git getID)"` | Export `COMMIT_QUEUE_ID` and `COMMIT_QUEUE_REPO` |
+| Agent runs `eval "$(git getID)"` | Export queue and agent identity variables |
+| Agent runs `git getID` without agent identity | Block with `COMMIT_QUEUE_AGENT_ID_REQUIRED` |
 | Agent runs `git add src/a.ts` with session | Stage into session index |
 | Agent runs `git add .` with session | Block |
 | Agent runs `git add dir/` with session | Block |
-| Agent runs `git commit -m "fix: a"` with clean session | Commit through repo lock |
+| Agent runs `git commit -m "fix: a"` with clean session | Commit through repo lock with attribution trailers |
+| Agent supplies reserved attribution trailer | Block with `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED` |
 | Agent runs `git commit src/a.ts -m "fix: a"` | Block |
 | Staged file changed after add | Block with `COMMIT_QUEUE_FILE_DRIFT` |
 | `HEAD` changed unexpectedly | Block with `COMMIT_QUEUE_HEAD_DRIFT` |

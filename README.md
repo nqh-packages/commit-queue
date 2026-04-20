@@ -6,7 +6,7 @@ Tiny Git safety wrapper for people running multiple AI coding agents in the same
 |----------|--------|
 | What is this? | A protected `git` shim plus a raw human `hgit` command |
 | Why use it? | Agents stop committing over each other |
-| Why it works | Each agent session gets isolated staging and commits serialize |
+| Why it works | Each agent session gets isolated staging, commits serialize, and commits carry agent attribution |
 | Status | Local v1 |
 
 Agent flow:
@@ -15,6 +15,14 @@ Agent flow:
 eval "$(git getID)"
 git add src/file.ts
 git commit -m "fix: update file"
+```
+
+For unsupported agents, provide explicit attribution before `git getID`:
+
+```bash
+export COMMIT_QUEUE_AGENT="codex"
+export COMMIT_QUEUE_AGENT_SESSION="codex-917838637383"
+eval "$(git getID)"
 ```
 
 Human flow, from an interactive terminal:
@@ -64,6 +72,7 @@ Now Agent A's commit may contain Agent B's work.
 | Agents commit at the same time | Commits run through a per-repo lock |
 | A stale lock remains | Lock owner metadata lets the wrapper recover it automatically |
 | A file changes after staging | Commit blocks until the agent stages again |
+| Commit history loses agent context | Protected commits append attribution trailers |
 | Humans need escape | `hgit` calls real Git only from an interactive terminal |
 
 ## Why It Is Good
@@ -107,6 +116,14 @@ git add path/to/file
 git commit -m "fix: describe change"
 ```
 
+Protected commits append native Git trailers:
+
+```text
+Commit-Queue-Session: cq_20260414_ab12
+Coding-Agent: codex
+Coding-Agent-Session: codex-917838637383
+```
+
 Human flow:
 
 ```bash
@@ -136,6 +153,7 @@ git commit --no-verify
 git commit --amend
 git commit path/to/file
 git -c core.hooksPath=/dev/null commit -m "..."
+git commit -m "..." --trailer "Coding-Agent: fake"
 ```
 
 Other Git commands pass through to real Git. `commit-queue` protects staging and commits; it is not a full Git sandbox.

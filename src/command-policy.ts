@@ -49,6 +49,11 @@ export type CommitPolicy = {
   pathspecs: string[];
 };
 
+export type ReservedCommitTrailer = {
+  key: string;
+  arg: string;
+};
+
 export type UnsafeAddPathspec = {
   path: string;
   reason: "wildcard" | "directory" | "matches_multiple_paths";
@@ -218,6 +223,25 @@ export function inspectCommitArgs(args: string[]): CommitPolicy {
   return policy;
 }
 
+export function firstReservedCommitTrailer(args: string[]): ReservedCommitTrailer | null {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || "";
+    let trailerValue: string | null = null;
+
+    if (arg === "--trailer") {
+      trailerValue = args[index + 1] || "";
+      index += 1;
+    } else if (arg.startsWith("--trailer=")) {
+      trailerValue = arg.slice("--trailer=".length);
+    }
+
+    const key = trailerValue ? reservedTrailerKey(trailerValue) : null;
+    if (key) return { key, arg: trailerValue || arg };
+  }
+
+  return null;
+}
+
 function isJoinedGlobalOption(arg: string): boolean {
   return (
     arg.startsWith("--config-env=") ||
@@ -259,4 +283,15 @@ function inspectCommitShortOptions(arg: string, policy: CommitPolicy): void {
 function commitShortOptionConsumesNext(arg: string): boolean {
   if (["-m", "-F", "-C", "-c"].includes(arg)) return true;
   return /^-[A-Za-z]*[mFCc]$/.test(arg);
+}
+
+function reservedTrailerKey(value: string): string | null {
+  const key = value.split(/[:=]/, 1)[0]?.trim().toLowerCase();
+  if (!key) return null;
+
+  if (["commit-queue-session", "coding-agent", "coding-agent-session"].includes(key)) {
+    return key;
+  }
+
+  return null;
 }
