@@ -265,7 +265,7 @@ function isBroadPathspec(arg: string): boolean {
 
 function hasPathspecWildcard(pathspec: string): boolean {
   const withoutMagic = pathspec.replace(/^:\([^)]*\)/, "");
-  return /[*?\[]/.test(withoutMagic);
+  return /[*?]/.test(withoutMagic);
 }
 
 function commitLongOptionConsumesNext(arg: string): boolean {

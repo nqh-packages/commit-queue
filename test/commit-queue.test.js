@@ -292,6 +292,7 @@ test("broad add commands are blocked even with a session", () => {
       ["add", "--pathspec-from-file", "paths.txt"],
       ["add", "src"],
       ["add", "src/*.ts"],
+      ["add", "src/[ab].ts"],
     ]) {
       const result = runCommitQueue(fixture.repo, args, {
         state: fixture.state,
@@ -455,6 +456,42 @@ test("explicit add from a subdirectory resolves paths like real Git", () => {
       ["diff", "--cached", "--name-only"],
     );
     assert.equal(privateIndex.stdout.trim(), "apps/booknow/Sources/Screens/BookingDetailScreen.swift");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("explicit add accepts literal bracketed route segments", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    const routeFile = "apps/ngoquochuy/src/pages/[locale]/index.astro";
+    const escapedRoutePathspec = "apps/ngoquochuy/src/pages/\\[locale\\]/index.astro";
+    writeRepoFile(fixture.repo, routeFile, "---\nconst locale = Astro.params.locale;\n---\n");
+
+    const result = runCommitQueue(fixture.repo, ["add", routeFile], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+
+    const escapedResult = runCommitQueue(fixture.repo, ["add", escapedRoutePathspec], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(escapedResult.status, 0, escapedResult.stderr);
+
+    const sharedIndex = runRealGit(fixture.repo, ["diff", "--cached", "--name-only"]);
+    assert.equal(sharedIndex.stdout.trim(), "");
+
+    const privateIndex = runRealGitWithIndex(
+      fixture.repo,
+      sessionIndexPath(fixture.state, env.COMMIT_QUEUE_ID),
+      ["diff", "--cached", "--name-only"],
+    );
+    assert.equal(privateIndex.stdout.trim(), routeFile);
   } finally {
     fixture.cleanup();
   }
