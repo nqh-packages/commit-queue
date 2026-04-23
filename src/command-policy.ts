@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import * as path from "node:path";
 import { matchingGitPaths } from "./git-runtime.js";
 import type { Invocation } from "./types.js";
@@ -139,7 +139,7 @@ export function firstUnsafeAddPathspec(
     }
 
     const absolutePath = path.isAbsolute(pathArg) ? pathArg : path.join(pathBaseCwd, pathArg);
-    if (existsSync(absolutePath) && statSync(absolutePath).isDirectory()) {
+    if (existsSync(absolutePath) && lstatSync(absolutePath).isDirectory()) {
       return { path: pathArg, reason: "directory" };
     }
 

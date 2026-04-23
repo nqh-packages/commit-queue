@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -431,6 +431,48 @@ test("explicit add uses the session index and leaves the shared index clean", ()
       ["diff", "--cached", "--name-only"],
     );
     assert.equal(privateIndex.stdout.trim(), "src/a.ts");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("explicit add stages a directory symlink as one path", () => {
+  const fixture = createFixture();
+  try {
+    const originalTarget = path.join(fixture.root, "backend-a", "apps", "booknow", "convex");
+    const newTarget = path.join(fixture.root, "backend-b", "apps", "booknow", "convex");
+    const linkPath = path.join(fixture.repo, "apps/booknow/convex");
+    mkdirSync(originalTarget, { recursive: true });
+    mkdirSync(newTarget, { recursive: true });
+    mkdirSync(path.dirname(linkPath), { recursive: true });
+    symlinkSync(originalTarget, linkPath, "dir");
+    assert.equal(runRealGit(fixture.repo, ["add", "apps/booknow/convex"]).status, 0);
+    assert.equal(runRealGit(fixture.repo, ["commit", "-m", "test: add symlink"]).status, 0);
+
+    const env = activateSession(fixture.repo, fixture.state);
+    rmSync(linkPath);
+    symlinkSync(newTarget, linkPath, "dir");
+
+    const result = runCommitQueue(fixture.repo, ["add", "apps/booknow/convex"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+
+    const privateIndex = runRealGitWithIndex(
+      fixture.repo,
+      sessionIndexPath(fixture.state, env.COMMIT_QUEUE_ID),
+      ["diff", "--cached", "--name-status"],
+    );
+    assert.equal(privateIndex.stdout.trim(), "M\tapps/booknow/convex");
+
+    const stagedEntry = runRealGitWithIndex(
+      fixture.repo,
+      sessionIndexPath(fixture.state, env.COMMIT_QUEUE_ID),
+      ["ls-files", "-s", "--", "apps/booknow/convex"],
+    );
+    assert.match(stagedEntry.stdout.trim(), /^120000 [0-9a-f]{40} 0\tapps\/booknow\/convex$/);
   } finally {
     fixture.cleanup();
   }
