@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -922,6 +922,71 @@ test("commit surfaces real Git commit failures", () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Aborting commit|Terminal is dumb|editor/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit explains repository hook failures after protected checks pass", () => {
+  const fixture = createFixture();
+  try {
+    const hooksDir = path.join(fixture.repo, ".githooks");
+    mkdirSync(hooksDir, { recursive: true });
+    const hookPath = path.join(hooksDir, "pre-commit");
+    writeFileSync(hookPath, "#!/usr/bin/env bash\necho 'custom pre-commit failed' >&2\nexit 1\n");
+    chmodSync(hookPath, 0o755);
+    assert.equal(runRealGit(fixture.repo, ["config", "core.hooksPath", ".githooks"]).status, 0);
+
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "-m", "test: hook failure"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /custom pre-commit failed/);
+    assert.match(result.stderr, /COMMIT_QUEUE_GIT_HOOK_FAILED/);
+    assert.match(result.stderr, /protected_checks/);
+    assert.match(result.stderr, /run the named check directly/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit suggests contract sync when hooks find frontend contract drift", () => {
+  const fixture = createFixture();
+  try {
+    const hooksDir = path.join(fixture.repo, ".githooks");
+    mkdirSync(hooksDir, { recursive: true });
+    const hookPath = path.join(hooksDir, "pre-commit");
+    writeFileSync(hookPath, [
+      "#!/usr/bin/env bash",
+      "echo 'Contract consumer check failed:' >&2",
+      "echo '- astro:apps/example -> example snapshot differs: modified:manifest.json' >&2",
+      "echo 'Run: pnpm contracts:sync:frontends' >&2",
+      "exit 1",
+      "",
+    ].join("\n"));
+    chmodSync(hookPath, 0o755);
+    assert.equal(runRealGit(fixture.repo, ["config", "core.hooksPath", ".githooks"]).status, 0);
+
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const result = runCommitQueue(fixture.repo, ["commit", "-m", "test: contract drift"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Contract consumer check failed/);
+    assert.match(result.stderr, /COMMIT_QUEUE_GIT_HOOK_CONTRACT_DRIFT/);
+    assert.match(result.stderr, /pnpm contracts:sync:frontends/);
+    assert.match(result.stderr, /Commit synced frontend snapshots separately/);
   } finally {
     fixture.cleanup();
   }
