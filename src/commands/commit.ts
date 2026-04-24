@@ -85,7 +85,7 @@ function commitWithFreshSession(realGit: string, repo: string, args: string[], s
     env: { GIT_INDEX_FILE: freshSession.indexPath },
   });
   if (commit.status !== 0) {
-    exitWithCommitFailure(commit, repo, freshSession.id);
+    exitWithResult(commit);
   }
 
   runGit(realGit, ["reset", "-q", "--mixed", "HEAD"], { cwd: repo });
@@ -94,96 +94,6 @@ function commitWithFreshSession(realGit: string, repo: string, args: string[], s
   freshSession.stagedPaths = {};
   saveSession(freshSession);
   exitWithResult(commit);
-}
-
-function exitWithCommitFailure(
-  result: ReturnType<typeof runGit>,
-  repo: string,
-  sessionId: string,
-): never {
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  const detected = detectCommitFailure(output);
-  const payload = errorPayload({
-    code: detected.code,
-    title: detected.title,
-    detail: detected.detail,
-    context: {
-      command: "commit",
-      repo,
-      session: sessionId,
-      git_status: result.status,
-      likely_cause: detected.likelyCause,
-      protected_checks: "passed_before_git_commit",
-    },
-    suggestions: detected.suggestions,
-    retriable: true,
-  });
-
-  if (process.env.COMMIT_QUEUE_JSON === "1") {
-    process.stderr.write(`${JSON.stringify(payload)}\n`);
-  } else {
-    process.stderr.write([
-      "",
-      "[commit-queue] git commit failed after protected checks passed.",
-      `error_code: ${payload.error_code}`,
-      `retriable: ${String(payload.retriable)}`,
-      "context:",
-      ...JSON.stringify(payload.context, null, 2).split("\n").map((line) => `  ${line}`),
-      ...payload.suggestions.map((suggestion) => `suggestion: ${suggestion}`),
-      "",
-    ].join("\n"));
-  }
-
-  process.exit(result.status ?? 1);
-}
-
-function detectCommitFailure(output: string): {
-  code: string;
-  title: string;
-  detail: string;
-  likelyCause: string;
-  suggestions: string[];
-} {
-  if (output.includes("Contract consumer check failed") || output.includes("contracts:check:frontends")) {
-    return {
-      code: "COMMIT_QUEUE_GIT_HOOK_CONTRACT_DRIFT",
-      title: "Git hook found frontend contract drift",
-      detail: "The repository hook failed while checking frontend contract snapshots.",
-      likelyCause: "repository_hook_contract_drift",
-      suggestions: [
-        "Read the hook output above for the exact stale frontend apps.",
-        "Run `pnpm contracts:sync:frontends`, then `pnpm contracts:check:frontends` from the backend repo.",
-        "Commit synced frontend snapshots separately when the drift is unrelated to the backend change.",
-      ],
-    };
-  }
-
-  if (output.includes("pre-commit") || output.includes("husky")) {
-    return {
-      code: "COMMIT_QUEUE_GIT_HOOK_FAILED",
-      title: "Git hook failed",
-      detail: "Git rejected the commit because a repository hook failed.",
-      likelyCause: "repository_hook_failed",
-      suggestions: [
-        "Read the hook output above and run the named check directly from the repo root.",
-        "Fix or isolate unrelated existing drift before retrying the commit.",
-      ],
-    };
-  }
-
-  return {
-    code: "COMMIT_QUEUE_GIT_COMMIT_FAILED",
-    title: "Git commit failed",
-    detail: "Git rejected the commit after commit-queue protected checks passed.",
-    likelyCause: "git_commit_failed",
-    suggestions: [
-      "Read the Git output above for the failing condition.",
-      "Fix the Git or hook failure, then retry `git commit` with the same staged session.",
-    ],
-  };
 }
 
 function assertNoReservedAttributionTrailers(args: string[], repo: string, sessionId: string): void {
