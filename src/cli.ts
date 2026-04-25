@@ -80,7 +80,7 @@ function indexAwareReadEnv(command: string, repo: string): NodeJS.ProcessEnv | u
 }
 
 function usesGitIndexForInspection(command: string): boolean {
-  return command === "status" || command === "diff" || command === "ls-files";
+  return command === "status" || command === "diff" || command === "ls-files" || command === "show";
 }
 
 export function runHumanGit(args: string[]): void {

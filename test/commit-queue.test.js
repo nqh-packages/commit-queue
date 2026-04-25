@@ -565,6 +565,26 @@ test("cached inspection commands read the active session index", () => {
   }
 });
 
+test("git show can read paths from the active session index", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+
+    const show = runCommitQueue(fixture.repo, ["show", ":src/a.ts"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(show.status, 0, show.stderr);
+    assert.equal(show.stdout, "export const a = 1;\n");
+    assert.equal(runRealGit(fixture.repo, ["show", ":src/a.ts"], { allowFailure: true }).status, 128);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("explicit add can stage one deleted tracked file", () => {
   const fixture = createFixture();
   try {
