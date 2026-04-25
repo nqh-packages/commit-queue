@@ -2,7 +2,6 @@ import { requireAgentIdentity } from "../agent-identity.js";
 import { firstReservedCommitTrailer, inspectCommitArgs } from "../command-policy.js";
 import { errorPayload, exitWithResult, fail } from "../errors.js";
 import { currentHead, currentHeadRef, listStagedPaths, runGit, worktreeBlob } from "../git-runtime.js";
-import { detectHumanNoVerifyBypass, writeHumanNoVerifyBypassEvent } from "../human-bypass.js";
 import { withRepoLock } from "../repo-lock.js";
 import { requireSession, sessionMissingError } from "../session-guard.js";
 import { loadSession, saveSession } from "../session-store.js";
@@ -10,18 +9,8 @@ import type { CommitQueueSession } from "../types.js";
 
 export function handleCommit(realGit: string, repo: string, args: string[]): void {
   const policy = inspectCommitArgs(args);
-  const bypass = policy.noVerify ? detectHumanNoVerifyBypass(args) : null;
-
-  if (bypass) {
-    assertNoBlockedPolicy(policy, args, repo, null, { allowNoVerify: true });
-    assertNoReservedAttributionTrailers(args, repo, null);
-    const commit = runGit(realGit, ["commit", ...bypass.sanitizedArgs], { cwd: repo });
-    if (commit.status === 0) writeHumanNoVerifyBypassEvent(repo);
-    exitWithResult(commit);
-  }
-
   const session = requireSession("commit", repo);
-  assertNoBlockedPolicy(policy, args, repo, session.id, { allowNoVerify: false });
+  assertNoBlockedPolicy(policy, args, repo, session.id);
   assertNoReservedAttributionTrailers(args, repo, session.id);
 
   withRepoLock(repo, () => {
@@ -34,7 +23,6 @@ function assertNoBlockedPolicy(
   args: string[],
   repo: string,
   sessionId: string | null,
-  options: { allowNoVerify: boolean },
 ): void {
   if (policy.commitAll) {
     fail(errorPayload({
@@ -47,7 +35,7 @@ function assertNoBlockedPolicy(
     }));
   }
 
-  if (policy.noVerify && !options.allowNoVerify) {
+  if (policy.noVerify) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_NO_VERIFY_BLOCKED",
       title: "No-verify commit blocked",

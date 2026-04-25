@@ -900,26 +900,30 @@ test("human no-verify bypass rejects inline secrets in Git message files", () =>
   }
 });
 
-test("human no-verify bypass does not authorize other blocked commit shapes", () => {
+test("human bypass runs before protected commit checks and GUI global config", () => {
   const fixture = createFixture();
   try {
     const secret = "local gui bypass phrase";
     writeHumanBypassConfig(fixture.state, secret);
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
     assert.equal(runRealGit(fixture.repo, ["add", "src/a.ts"]).status, 0);
+    writeRepoFile(fixture.repo, "message.txt", `test: gui bypass before checks\n${secret}\n`);
 
-    for (const [args, code] of [
-      [["commit", "--no-verify", "--amend", "-m", `test: rewrite\n${secret}`], "COMMIT_QUEUE_AMEND_BLOCKED"],
-      [["commit", "--no-verify", "-a", "-m", `test: all\n${secret}`], "COMMIT_QUEUE_COMMIT_ALL_BLOCKED"],
-      [["commit", "--no-verify", "-m", `test: pathspec\n${secret}`, "src/a.ts"], "COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED"],
-      [["commit", "--no-verify", "-m", `test: spoof\n${secret}`, "--trailer", "Coding-Agent: human"], "COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED"],
-    ]) {
-      const result = runCommitQueue(fixture.repo, args, { state: fixture.state });
-      assert.notEqual(result.status, 0, `${args.join(" ")} should fail`);
-      assert.match(result.stderr, new RegExp(code));
-    }
+    const result = runCommitQueue(fixture.repo, [
+      "-c",
+      "core.fsmonitor=false",
+      "--no-optional-locks",
+      "--no-pager",
+      "commit",
+      "--no-verify",
+      "-F",
+      "message.txt",
+    ], { state: fixture.state });
 
-    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+    assert.equal(result.status, 0, result.stderr);
+    const message = runRealGit(fixture.repo, ["log", "-1", "--format=%B"]).stdout;
+    assert.match(message, /test: gui bypass before checks/);
+    assert.doesNotMatch(message, /local gui bypass phrase/);
   } finally {
     fixture.cleanup();
   }

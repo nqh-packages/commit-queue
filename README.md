@@ -143,13 +143,13 @@ hgit add .
 hgit commit -m "manual commit"
 ```
 
-GUI human `--no-verify` flow:
+GUI human bypass flow:
 
-When a human cannot use an interactive terminal, commit-queue can allow a local
-GUI commit with `--no-verify` if the commit message includes a standalone local
-secret line. The secret itself is not stored in the repo or in Git history:
-commit-queue reads a local hash from its user runtime state, strips the matching
-message line, and then calls real Git with the normal Git index.
+When a human cannot use an interactive terminal, commit-queue can treat a local
+GUI commit as a first-class human bypass if the commit message includes a
+standalone local secret line. The secret itself is not stored in the repo or in
+Git history: commit-queue reads a local hash from its user runtime state, strips
+the matching message line, and then calls real Git with the normal Git index.
 
 The local runtime config is intentionally machine-local. Store only a SHA-256
 hash of the phrase:

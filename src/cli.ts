@@ -9,6 +9,7 @@ import { handleCommit } from "./commands/commit.js";
 import { createSession } from "./commands/get-id.js";
 import { errorPayload, exitWithResult, fail } from "./errors.js";
 import { isRepoOptedOut, resolveRealGit, resolveRepo, runGit } from "./git-runtime.js";
+import { detectHumanNoVerifyBypass, writeHumanNoVerifyBypassEvent } from "./human-bypass.js";
 import { assertNoFailedInstallRefresh } from "./install-refresh-guard.js";
 import { requireSession } from "./session-guard.js";
 
@@ -43,6 +44,15 @@ export function runProtectedGit(args: string[]): void {
   if (command === "getID") {
     createSession(realGit, repo);
     return;
+  }
+
+  if (command === "commit") {
+    const bypass = detectHumanNoVerifyBypass(invocation.commandArgs);
+    if (bypass) {
+      const commit = runGit(realGit, [...invocation.globalArgs, "commit", ...bypass.sanitizedArgs]);
+      if (commit.status === 0) writeHumanNoVerifyBypassEvent(repo);
+      exitWithResult(commit);
+    }
   }
 
   if (command === "commit" && hasGlobalConfigOverride(invocation.globalArgs)) {
