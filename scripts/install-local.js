@@ -116,7 +116,7 @@ function ensureRepoHooksPath() {
     throw new Error(`Cannot install commit-queue hooks; missing ${hooksDir}`);
   }
 
-  const result = spawnSync("git", ["-C", hookRepo, "config", "--local", "core.hooksPath", ".githooks"], {
+  const result = spawnSync(resolveRealGit(), ["-C", hookRepo, "config", "--local", "core.hooksPath", ".githooks"], {
     encoding: "utf8",
   });
   if (result.status !== 0) {
@@ -124,6 +124,15 @@ function ensureRepoHooksPath() {
     process.stderr.write(result.stderr);
     process.exit(result.status ?? 1);
   }
+}
+
+function resolveRealGit() {
+  if (process.env.COMMIT_QUEUE_REAL_GIT) return process.env.COMMIT_QUEUE_REAL_GIT;
+  for (const candidate of ["/opt/homebrew/bin/git", "/usr/bin/git", "git"]) {
+    const result = spawnSync(candidate, ["--version"], { encoding: "utf8" });
+    if (result.status === 0) return candidate;
+  }
+  return "git";
 }
 
 function clearFailedRefreshMarker(repo) {

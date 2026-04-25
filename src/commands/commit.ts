@@ -2,32 +2,57 @@ import { requireAgentIdentity } from "../agent-identity.js";
 import { firstReservedCommitTrailer, inspectCommitArgs } from "../command-policy.js";
 import { errorPayload, exitWithResult, fail } from "../errors.js";
 import { currentHead, currentHeadRef, listStagedPaths, runGit, worktreeBlob } from "../git-runtime.js";
+import { detectHumanNoVerifyBypass, writeHumanNoVerifyBypassEvent } from "../human-bypass.js";
 import { withRepoLock } from "../repo-lock.js";
 import { requireSession, sessionMissingError } from "../session-guard.js";
 import { loadSession, saveSession } from "../session-store.js";
 import type { CommitQueueSession } from "../types.js";
 
 export function handleCommit(realGit: string, repo: string, args: string[]): void {
-  const session = requireSession("commit", repo);
   const policy = inspectCommitArgs(args);
+  const bypass = policy.noVerify ? detectHumanNoVerifyBypass(args) : null;
 
+  if (bypass) {
+    assertNoBlockedPolicy(policy, args, repo, null, { allowNoVerify: true });
+    assertNoReservedAttributionTrailers(args, repo, null);
+    const commit = runGit(realGit, ["commit", ...bypass.sanitizedArgs], { cwd: repo });
+    if (commit.status === 0) writeHumanNoVerifyBypassEvent(repo);
+    exitWithResult(commit);
+  }
+
+  const session = requireSession("commit", repo);
+  assertNoBlockedPolicy(policy, args, repo, session.id, { allowNoVerify: false });
+  assertNoReservedAttributionTrailers(args, repo, session.id);
+
+  withRepoLock(repo, () => {
+    commitWithFreshSession(realGit, repo, args, session.id);
+  });
+}
+
+function assertNoBlockedPolicy(
+  policy: ReturnType<typeof inspectCommitArgs>,
+  args: string[],
+  repo: string,
+  sessionId: string | null,
+  options: { allowNoVerify: boolean },
+): void {
   if (policy.commitAll) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_COMMIT_ALL_BLOCKED",
       title: "Commit all blocked",
       detail: "`git commit -a` bypasses explicit protected staging.",
-      context: { command: "commit", args, repo, session: session.id },
+      context: commitContext(args, repo, sessionId),
       suggestions: ["Use `git add path/to/file`, then `git commit -m \"message\"`."],
       retriable: true,
     }));
   }
 
-  if (policy.noVerify) {
+  if (policy.noVerify && !options.allowNoVerify) {
     fail(errorPayload({
       code: "COMMIT_QUEUE_NO_VERIFY_BLOCKED",
       title: "No-verify commit blocked",
       detail: "Git hook bypass options are blocked in protected mode.",
-      context: { command: "commit", args, repo, session: session.id },
+      context: commitContext(args, repo, sessionId),
       suggestions: [
         "Commit without `--no-verify` so repository hooks can run.",
         "If a hook fails, fix the failing check and retry the commit.",
@@ -42,7 +67,7 @@ export function handleCommit(realGit: string, repo: string, args: string[]): voi
       code: "COMMIT_QUEUE_AMEND_BLOCKED",
       title: "Amend blocked",
       detail: "`git commit --amend` rewrites the current commit and is blocked in protected mode.",
-      context: { command: "commit", args, repo, session: session.id },
+      context: commitContext(args, repo, sessionId),
       suggestions: [
         "Create a follow-up commit instead of rewriting history.",
         "If the latest commit message must be rewritten, stop and ask the human.",
@@ -56,17 +81,11 @@ export function handleCommit(realGit: string, repo: string, args: string[]): voi
       code: "COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED",
       title: "Commit pathspec blocked",
       detail: "Commit pathspecs can bypass protected staging and are blocked.",
-      context: { command: "commit", args, repo, session: session.id, pathspecs: policy.pathspecs },
+      context: { ...commitContext(args, repo, sessionId), pathspecs: policy.pathspecs },
       suggestions: ["Use `git add path/to/file`, then `git commit -m \"message\"` without path arguments."],
       retriable: true,
     }));
   }
-
-  assertNoReservedAttributionTrailers(args, repo, session.id);
-
-  withRepoLock(repo, () => {
-    commitWithFreshSession(realGit, repo, args, session.id);
-  });
 }
 
 function commitWithFreshSession(realGit: string, repo: string, args: string[], sessionId: string): void {
@@ -96,7 +115,7 @@ function commitWithFreshSession(realGit: string, repo: string, args: string[], s
   exitWithResult(commit);
 }
 
-function assertNoReservedAttributionTrailers(args: string[], repo: string, sessionId: string): void {
+function assertNoReservedAttributionTrailers(args: string[], repo: string, sessionId: string | null): void {
   const trailer = firstReservedCommitTrailer(args);
   if (!trailer) return;
 
@@ -105,9 +124,7 @@ function assertNoReservedAttributionTrailers(args: string[], repo: string, sessi
     title: "Reserved commit trailer blocked",
     detail: "Commit-queue attribution trailers are reserved for commit-queue attribution and cannot be supplied by command args.",
     context: {
-      command: "commit",
-      repo,
-      session: sessionId,
+      ...commitContext(args, repo, sessionId),
       trailer_key: trailer.key,
       trailer_arg: trailer.arg,
     },
@@ -117,6 +134,15 @@ function assertNoReservedAttributionTrailers(args: string[], repo: string, sessi
     ],
     retriable: true,
   }));
+}
+
+function commitContext(args: string[], repo: string, sessionId: string | null): Record<string, unknown> {
+  return {
+    command: "commit",
+    args,
+    repo,
+    ...(sessionId ? { session: sessionId } : {}),
+  };
 }
 
 function attributionTrailerArgs(

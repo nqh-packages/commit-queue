@@ -98,6 +98,7 @@ Just one shim.
 | Session identity | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
 | Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
 | Commit attribution | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` trailers |
+| GUI human no-verify bypass | A local hash-authorized standalone message line may allow `git commit --no-verify`; commit-queue strips the line and uses the normal Git index |
 | Installed runtime refresh | This repo refreshes `~/.commit-queue` from committed `HEAD` after commit, merge, and checkout |
 | Refresh failure | Failed refresh writes a stale marker; protected mutations in this repo block until install refresh succeeds |
 | Staging | Explicit file paths only |
@@ -180,6 +181,7 @@ The explicit adapter requires both values because the agent name identifies the 
 | `git getID` | Detects agent identity, creates a session, and prints shell exports |
 | `git add explicit/path` | Stage into this session's private index |
 | `git commit -m "..."` | Lock repo, verify, append attribution trailers, commit through real Git |
+| `git commit --no-verify -m "..."` with local human phrase line | Strip the local phrase line, write a local audit event, and commit through real Git with the normal index |
 
 ### Pass Through
 
@@ -439,6 +441,7 @@ Agent-facing errors must not mention `hgit` or bypass commands.
 | Staged file changed after add | Block with `COMMIT_QUEUE_FILE_DRIFT` |
 | `HEAD` changed unexpectedly | Block with `COMMIT_QUEUE_HEAD_DRIFT` |
 | Human runs `hgit commit -m "..."` in an interactive terminal | Raw Git passthrough |
+| Human runs GUI `--no-verify` commit with valid local phrase line | Strip phrase line and commit through raw Git index |
 | Repo has `{ "enabled": false }` | Raw Git passthrough |
 
 ## Testing Standard

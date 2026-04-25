@@ -143,6 +143,26 @@ hgit add .
 hgit commit -m "manual commit"
 ```
 
+GUI human `--no-verify` flow:
+
+When a human cannot use an interactive terminal, commit-queue can allow a local
+GUI commit with `--no-verify` if the commit message includes a standalone local
+secret line. The secret itself is not stored in the repo or in Git history:
+commit-queue reads a local hash from its user runtime state, strips the matching
+message line, and then calls real Git with the normal Git index.
+
+The local runtime config is intentionally machine-local. Store only a SHA-256
+hash of the phrase:
+
+```json
+{
+  "humanNoVerifyPhraseHash": "<sha256-of-local-phrase>"
+}
+```
+
+Use a normal commit subject plus the local phrase as its own line in the GUI
+commit message. Do not use a shared, obvious, or repository-documented phrase.
+
 Opt out a repo:
 
 ```json

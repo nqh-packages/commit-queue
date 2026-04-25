@@ -29,6 +29,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Session env vars | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
 | Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
 | Commit trailers | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` |
+| GUI human no-verify bypass | A local hash-authorized standalone message line may allow `git commit --no-verify`; commit-queue strips the line and uses the normal Git index |
 | Installed runtime refresh | This repo installs `.githooks` for `post-commit`, `post-merge`, and `post-checkout`; hooks rebuild and reinstall the committed `HEAD` runtime |
 | Refresh failure behavior | A failed runtime refresh writes a stale marker and protected `git add`/`git commit` block until refresh succeeds |
 | Staging | Explicit paths only |
@@ -67,6 +68,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git getID` | Create session, print shell exports |
 | `git add path` | Require session, explicit paths only, stage into session index |
 | `git commit -m "..."` | Require session, lock repo, verify drift, append attribution trailers, commit |
+| `git commit --no-verify -m "..."` with local human phrase line | Strip the local phrase line, write a local audit event, and commit through real Git with the normal index |
 
 ### Blocked In Protected Add/Commit Flow
 
@@ -158,6 +160,7 @@ Use TDD.
 | Explicit add | Uses session index |
 | Broad add, directory add, glob add | Blocked |
 | Commit after clean add | Creates commit with attribution trailers |
+| GUI human no-verify bypass | Valid local phrase line is stripped before raw-index commit |
 | Reserved attribution trailer | Blocked before Git commit |
 | Commit pathspec | Blocked before Git can bypass session index |
 | Hook config mutation | Blocked before hooks can be disabled |

@@ -802,6 +802,83 @@ test("commit --no-verify is blocked with a session", () => {
   }
 });
 
+test("human no-verify bypass commits from the raw Git index and strips the secret line", () => {
+  const fixture = createFixture();
+  try {
+    const secret = "local gui bypass phrase";
+    writeHumanBypassConfig(fixture.state, secret);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runRealGit(fixture.repo, ["add", "src/a.ts"]).status, 0);
+
+    const result = runCommitQueue(fixture.repo, [
+      "commit",
+      "--no-verify",
+      "-m",
+      "test: gui commit\nlocal gui bypass phrase",
+    ], { state: fixture.state });
+
+    assert.equal(result.status, 0, result.stderr);
+    const message = runRealGit(fixture.repo, ["log", "-1", "--format=%B"]).stdout;
+    assert.match(message, /test: gui commit/);
+    assert.doesNotMatch(message, /local gui bypass phrase/);
+    assert.doesNotMatch(message, /Coding-Agent:/);
+    assert.equal(runRealGit(fixture.repo, ["status", "--short"]).stdout.trim(), "");
+
+    const events = readFileSync(path.join(fixture.state, "logs", "events.jsonl"), "utf8");
+    assert.match(events, /commit_queue\.human_no_verify_bypass/);
+    assert.doesNotMatch(events, /local gui bypass phrase/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("human no-verify bypass only matches a standalone secret line", () => {
+  const fixture = createFixture();
+  try {
+    writeHumanBypassConfig(fixture.state, "local gui bypass phrase");
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runRealGit(fixture.repo, ["add", "src/a.ts"]).status, 0);
+
+    const result = runCommitQueue(fixture.repo, [
+      "commit",
+      "--no-verify",
+      "-m",
+      "test: gui commit with local gui bypass phrase inline",
+    ], { state: fixture.state });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("human no-verify bypass does not authorize other blocked commit shapes", () => {
+  const fixture = createFixture();
+  try {
+    const secret = "local gui bypass phrase";
+    writeHumanBypassConfig(fixture.state, secret);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runRealGit(fixture.repo, ["add", "src/a.ts"]).status, 0);
+
+    for (const [args, code] of [
+      [["commit", "--no-verify", "--amend", "-m", `test: rewrite\n${secret}`], "COMMIT_QUEUE_AMEND_BLOCKED"],
+      [["commit", "--no-verify", "-a", "-m", `test: all\n${secret}`], "COMMIT_QUEUE_COMMIT_ALL_BLOCKED"],
+      [["commit", "--no-verify", "-m", `test: pathspec\n${secret}`, "src/a.ts"], "COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED"],
+      [["commit", "--no-verify", "-m", `test: spoof\n${secret}`, "--trailer", "Coding-Agent: human"], "COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED"],
+    ]) {
+      const result = runCommitQueue(fixture.repo, args, { state: fixture.state });
+      assert.notEqual(result.status, 0, `${args.join(" ")} should fail`);
+      assert.match(result.stderr, new RegExp(code));
+    }
+
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("commit --no-post-rewrite is blocked as a hook bypass", () => {
   const fixture = createFixture();
   try {
@@ -1270,4 +1347,11 @@ test("human Git passthrough is blocked without an interactive terminal", () => {
 function repoLockPath(state, repo) {
   const lockName = createHash("sha256").update(repo).digest("hex").slice(0, 24);
   return path.join(state, "locks", `${lockName}.lock`);
+}
+
+function writeHumanBypassConfig(state, phrase) {
+  mkdirSync(state, { recursive: true });
+  writeFileSync(path.join(state, ".runtime-local.json"), `${JSON.stringify({
+    humanNoVerifyPhraseHash: createHash("sha256").update(phrase).digest("hex"),
+  }, null, 2)}\n`);
 }
