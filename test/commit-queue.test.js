@@ -854,6 +854,52 @@ test("human no-verify bypass only matches a standalone secret line", () => {
   }
 });
 
+test("human no-verify bypass supports Git message files from GUI clients", () => {
+  const fixture = createFixture();
+  try {
+    const secret = "local gui bypass phrase";
+    writeHumanBypassConfig(fixture.state, secret);
+
+    for (const [fileName, args] of [
+      ["message-a.txt", ["commit", "--no-verify", "-F", "message-a.txt"]],
+      ["message-b.txt", ["commit", "--no-verify", "--file=message-b.txt"]],
+    ]) {
+      writeRepoFile(fixture.repo, `src/${fileName}.ts`, "export const a = 1;\n");
+      assert.equal(runRealGit(fixture.repo, ["add", `src/${fileName}.ts`]).status, 0);
+      writeRepoFile(fixture.repo, fileName, `test: gui file commit ${fileName}\n${secret}\n`);
+
+      const result = runCommitQueue(fixture.repo, args, { state: fixture.state });
+
+      assert.equal(result.status, 0, result.stderr);
+      const message = runRealGit(fixture.repo, ["log", "-1", "--format=%B"]).stdout;
+      assert.match(message, new RegExp(`test: gui file commit ${fileName}`));
+      assert.doesNotMatch(message, /local gui bypass phrase/);
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("human no-verify bypass rejects inline secrets in Git message files", () => {
+  const fixture = createFixture();
+  try {
+    writeHumanBypassConfig(fixture.state, "local gui bypass phrase");
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(runRealGit(fixture.repo, ["add", "src/a.ts"]).status, 0);
+    writeRepoFile(fixture.repo, "message.txt", "test: gui file commit with local gui bypass phrase inline\n");
+
+    const result = runCommitQueue(fixture.repo, ["commit", "--no-verify", "-F", "message.txt"], {
+      state: fixture.state,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("human no-verify bypass does not authorize other blocked commit shapes", () => {
   const fixture = createFixture();
   try {
