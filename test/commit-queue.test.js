@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -345,6 +345,67 @@ test("unowned Git commands pass through without a session", () => {
     assert.equal(runRealGit(fixture.repo, ["tag", "--list", "v1.0.0"]).stdout.trim(), "v1.0.0");
     assert.equal(runRealGit(fixture.repo, ["branch", "--list", "new-branch"]).stdout.trim(), "new-branch");
     assert.equal(runRealGit(fixture.repo, ["config", "--get", "alias.co"]).stdout.trim(), "checkout");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("hook config writes are blocked while harmless config writes pass through", () => {
+  const fixture = createFixture();
+  try {
+    const safeWrite = runCommitQueue(fixture.repo, ["config", "alias.co", "checkout"], { state: fixture.state });
+    const hookPathWrite = runCommitQueue(fixture.repo, ["config", "core.hooksPath", "/dev/null"], { state: fixture.state });
+    const hookCommandWrite = runCommitQueue(fixture.repo, ["config", "hook.lint.command", "npm test"], { state: fixture.state });
+    const hookEventWrite = runCommitQueue(fixture.repo, ["config", "--add", "hook.lint.event", "pre-commit"], { state: fixture.state });
+    const hookEdit = runCommitQueue(fixture.repo, ["config", "--edit"], { state: fixture.state });
+    const hookRead = runCommitQueue(fixture.repo, ["config", "--get", "core.hooksPath"], { state: fixture.state });
+
+    assert.equal(safeWrite.status, 0, safeWrite.stderr);
+    assert.notEqual(hookPathWrite.status, 0);
+    assert.notEqual(hookCommandWrite.status, 0);
+    assert.notEqual(hookEventWrite.status, 0);
+    assert.notEqual(hookEdit.status, 0);
+    assert.match(hookPathWrite.stderr, /COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED/);
+    assert.match(hookCommandWrite.stderr, /COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED/);
+    assert.match(hookEventWrite.stderr, /COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED/);
+    assert.match(hookEdit.stderr, /COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED/);
+    assert.equal(hookRead.status, 1);
+    assert.equal(runRealGit(fixture.repo, ["config", "--get", "alias.co"]).stdout.trim(), "checkout");
+    assert.equal(runRealGit(fixture.repo, ["config", "--get", "core.hooksPath"], { allowFailure: true }).stdout.trim(), "");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("protected git blocks config-based hook bypass before commit", () => {
+  const fixture = createFixture();
+  try {
+    const hooksDir = path.join(fixture.repo, ".githooks");
+    const hookPath = path.join(hooksDir, "pre-commit");
+    mkdirSync(hooksDir);
+    writeFileSync(hookPath, "#!/bin/sh\necho HOOK_RAN >&2\nexit 1\n");
+    chmodSync(hookPath, 0o755);
+    assert.equal(runRealGit(fixture.repo, ["config", "core.hooksPath", ".githooks"]).status, 0);
+
+    const env = activateSession(fixture.repo, fixture.state);
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+
+    const bypass = runCommitQueue(fixture.repo, ["config", "core.hooksPath", "/dev/null"], {
+      state: fixture.state,
+      env,
+    });
+    assert.notEqual(bypass.status, 0);
+    assert.match(bypass.stderr, /COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED/);
+
+    assert.equal(runCommitQueue(fixture.repo, ["add", "src/a.ts"], { state: fixture.state, env }).status, 0);
+    const commit = runCommitQueue(fixture.repo, ["commit", "-m", "test: hook still runs"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(commit.status, 0);
+    assert.match(commit.stderr, /HOOK_RAN/);
+    assert.equal(runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(), "test: initial");
   } finally {
     fixture.cleanup();
   }
@@ -799,6 +860,25 @@ test("commit --amend is blocked as a history rewrite", () => {
     assert.match(result.stderr, /follow-up commit/);
     assert.match(result.stderr, /ask the human/);
     assert.doesNotMatch(result.stderr, /Use `git add path\/to\/file`/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("git history is blocked as an experimental history rewrite", () => {
+  const fixture = createFixture();
+  try {
+    const env = activateSession(fixture.repo, fixture.state);
+
+    const result = runCommitQueue(fixture.repo, ["history", "reword", "HEAD"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_HISTORY_REWRITE_BLOCKED/);
+    assert.match(result.stderr, /does not currently run hooks/);
+    assert.match(result.stderr, /ask the human/);
   } finally {
     fixture.cleanup();
   }

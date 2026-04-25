@@ -58,7 +58,7 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Command | Notes |
 |---------|-------|
 | Non-owned Git commands | Pass through to real Git |
-| Examples | `status`, `diff`, `log`, `show`, `clone`, `fetch`, `tag`, `branch`, `push`, `config`, `checkout`, future Git commands |
+| Examples | `status`, `diff`, `log`, `show`, `clone`, `fetch`, `tag`, `branch`, `push`, harmless `config`, `checkout`, future Git commands |
 
 ### Protected Commands
 
@@ -83,6 +83,10 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | `git commit --amend` | `COMMIT_QUEUE_AMEND_BLOCKED` |
 | `git commit path/to/file` | `COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED` |
 | `git -c ... commit` | `COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE` |
+| `git config core.hooksPath ...` | `COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED` |
+| `git config hook.* ...` | `COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED` |
+| `git config --edit` | `COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED` |
+| `git history ...` | `COMMIT_QUEUE_HISTORY_REWRITE_BLOCKED` |
 | `git commit --trailer "Coding-Agent: ..."` | `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED` |
 | `git getID` without agent identity | `COMMIT_QUEUE_AGENT_ID_REQUIRED` |
 
@@ -156,6 +160,8 @@ Use TDD.
 | Commit after clean add | Creates commit with attribution trailers |
 | Reserved attribution trailer | Blocked before Git commit |
 | Commit pathspec | Blocked before Git can bypass session index |
+| Hook config mutation | Blocked before hooks can be disabled |
+| `git history` rewrite | Blocked because it rewrites history and does not run hooks |
 | File drift after add | Blocked |
 | `HEAD` drift | Blocked |
 | Opt-out config | Calls real Git |

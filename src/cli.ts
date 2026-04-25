@@ -1,5 +1,7 @@
 import {
+  firstUnsafeConfigMutation,
   hasGlobalConfigOverride,
+  isConfigReadOnly,
   parseInvocation,
 } from "./command-policy.js";
 import { handleAdd } from "./commands/add.js";
@@ -51,6 +53,42 @@ export function runProtectedGit(args: string[]): void {
       context: { command, global_args: invocation.globalArgs, repo },
       suggestions: ["Run `git commit` without inline `-c` or `--config-env` overrides."],
       retriable: true,
+    }));
+  }
+
+  if (command === "config") {
+    const unsafeConfig = firstUnsafeConfigMutation(invocation.commandArgs);
+    if (unsafeConfig && !isConfigReadOnly(invocation.commandArgs)) {
+      fail(errorPayload({
+        code: "COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED",
+        title: "Hook config mutation blocked",
+        detail: "Git hook configuration controls repository gates and cannot be changed by protected git.",
+        context: {
+          command,
+          args: invocation.commandArgs,
+          repo,
+          unsafe_config: unsafeConfig,
+        },
+        suggestions: [
+          "Leave repository hooks enabled and retry the original command.",
+          "If hook configuration must change, stop and ask the human.",
+        ],
+        retriable: false,
+      }));
+    }
+  }
+
+  if (command === "history") {
+    fail(errorPayload({
+      code: "COMMIT_QUEUE_HISTORY_REWRITE_BLOCKED",
+      title: "History rewrite blocked",
+      detail: "`git history` rewrites commit history and does not currently run hooks.",
+      context: { command, args: invocation.commandArgs, repo },
+      suggestions: [
+        "Create a follow-up commit instead of rewriting history.",
+        "If history must be rewritten, stop and ask the human.",
+      ],
+      retriable: false,
     }));
   }
 

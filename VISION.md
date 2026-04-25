@@ -187,7 +187,7 @@ The explicit adapter requires both values because the agent name identifies the 
 |---------|-----|
 | Any non-owned Git command | `commit-queue` is not a Git firewall; it only protects staging and commit boundaries |
 
-Examples: `git clone`, `git fetch`, `git tag`, `git branch`, `git config`, `git checkout`, `git reset`, and future Git commands all pass through to real Git.
+Examples: `git clone`, `git fetch`, `git tag`, `git branch`, harmless `git config`, `git checkout`, `git reset`, and future Git commands all pass through to real Git.
 
 ### Blocked For Protected Commits In v1
 
@@ -204,6 +204,10 @@ Examples: `git clone`, `git fetch`, `git tag`, `git branch`, `git config`, `git 
 | `git commit --amend` | It rewrites history |
 | `git commit path/to/file` | It can bypass the private session index |
 | `git -c ... commit` | Inline config can bypass protected commit assumptions |
+| `git config core.hooksPath ...` | It can disable repository hooks before commit |
+| `git config hook.* ...` | Git 2.54 config hooks are repository gate configuration |
+| `git config --edit` | It can mutate hook configuration without an inspectable key |
+| `git history ...` | It rewrites history and does not currently run hooks |
 | `git commit --trailer "Coding-Agent: ..."` | Attribution trailers are owned by `commit-queue` |
 
 Broad commands are not evil. They are just wrong when five agents share one checkout.

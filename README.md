@@ -165,6 +165,9 @@ git commit --no-verify
 git commit --amend
 git commit path/to/file
 git -c core.hooksPath=/dev/null commit -m "..."
+git config core.hooksPath /dev/null
+git config hook.lint.command "npm test"
+git history reword HEAD
 git commit -m "..." --trailer "Coding-Agent: fake"
 ```
 
