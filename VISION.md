@@ -181,6 +181,7 @@ The explicit adapter requires both values because the agent name identifies the 
 | `git getID`                                   | Detects agent identity, creates a session, and prints shell exports                                                               |
 | `git add explicit/path`                       | Stage into this session's private index                                                                                           |
 | `git commit -m "..."`                         | Lock repo, verify, append attribution trailers, commit through real Git                                                           |
+| `git commit path -m "..."`                    | Verify the path matches already staged session paths, then commit only those staged paths through a filtered private index        |
 | `git commit ...` with local human phrase line | Strip the local phrase line, write a local audit event, and commit through real Git with the normal index before protected checks |
 
 ### Pass Through
@@ -204,7 +205,8 @@ Examples: `git clone`, `git fetch`, `git tag`, `git branch`, harmless `git confi
 | `git commit -a`                            | It bypasses explicit staging                                |
 | `git commit --no-verify`                   | It skips repository hooks                                   |
 | `git commit --amend`                       | It rewrites history                                         |
-| `git commit path/to/file`                  | It can bypass the private session index                     |
+| `git commit --only path/to/file`           | It can bypass the private session index                     |
+| `git commit unstaged/path`                 | It can read unstaged worktree content                       |
 | `git -c ... commit`                        | Inline config can bypass protected commit assumptions       |
 | `git config core.hooksPath ...`            | It can disable repository hooks before commit               |
 | `git config hook.* ...`                    | Git 2.54 config hooks are repository gate configuration     |
@@ -427,22 +429,23 @@ Agent-facing errors must not mention `hgit` or bypass commands.
 
 ## v1 Behavior Matrix
 
-| Scenario                                                     | Expected Result                                                            |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| Agent runs `git add src/a.ts` without session                | Block                                                                      |
-| Agent runs `eval "$(git getID)"`                             | Export queue and agent identity variables                                  |
-| Agent runs `git getID` without agent identity                | Block with `COMMIT_QUEUE_AGENT_ID_REQUIRED`                                |
-| Agent runs `git add src/a.ts` with session                   | Stage into session index                                                   |
-| Agent runs `git add .` with session                          | Block                                                                      |
-| Agent runs `git add dir/` with session                       | Block                                                                      |
-| Agent runs `git commit -m "fix: a"` with clean session       | Commit through repo lock with attribution trailers                         |
-| Agent supplies reserved attribution trailer                  | Block with `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED`                         |
-| Agent runs `git commit src/a.ts -m "fix: a"`                 | Block                                                                      |
-| Staged file changed after add                                | Block with `COMMIT_QUEUE_FILE_DRIFT`                                       |
-| `HEAD` changed unexpectedly                                  | Block with `COMMIT_QUEUE_HEAD_DRIFT`                                       |
-| Human runs `hgit commit -m "..."` in an interactive terminal | Raw Git passthrough                                                        |
-| Human runs GUI commit with valid local phrase line           | Strip phrase line and commit through raw Git index before protected checks |
-| Repo has `{ "enabled": false }`                              | Raw Git passthrough                                                        |
+| Scenario                                                       | Expected Result                                                            |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Agent runs `git add src/a.ts` without session                  | Block                                                                      |
+| Agent runs `eval "$(git getID)"`                               | Export queue and agent identity variables                                  |
+| Agent runs `git getID` without agent identity                  | Block with `COMMIT_QUEUE_AGENT_ID_REQUIRED`                                |
+| Agent runs `git add src/a.ts` with session                     | Stage into session index                                                   |
+| Agent runs `git add .` with session                            | Block                                                                      |
+| Agent runs `git add dir/` with session                         | Block                                                                      |
+| Agent runs `git commit -m "fix: a"` with clean session         | Commit through repo lock with attribution trailers                         |
+| Agent supplies reserved attribution trailer                    | Block with `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED`                         |
+| Agent runs `git commit src/a.ts -m "fix: a"` for staged path   | Commit only the matching staged session path                               |
+| Agent runs `git commit src/a.ts -m "fix: a"` for unstaged path | Block with `COMMIT_QUEUE_COMMIT_PATHSPEC_NOT_STAGED`                       |
+| Staged file changed after add                                  | Block with `COMMIT_QUEUE_FILE_DRIFT`                                       |
+| `HEAD` changed unexpectedly                                    | Block with `COMMIT_QUEUE_HEAD_DRIFT`                                       |
+| Human runs `hgit commit -m "..."` in an interactive terminal   | Raw Git passthrough                                                        |
+| Human runs GUI commit with valid local phrase line             | Strip phrase line and commit through raw Git index before protected checks |
+| Repo has `{ "enabled": false }`                                | Raw Git passthrough                                                        |
 
 ## Testing Standard
 

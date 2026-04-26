@@ -84,6 +84,7 @@ first, then `$HOME/.qlty/bin/qlty`.
 | `git getID`                                   | Create session, print shell exports                                                                                               |
 | `git add path`                                | Require session, explicit paths only, stage into session index                                                                    |
 | `git commit -m "..."`                         | Require session, lock repo, verify drift, append attribution trailers, commit                                                     |
+| `git commit path -m "..."`                    | Require session, verify path matches already staged session paths, commit only matching staged paths                              |
 | `git commit ...` with local human phrase line | Strip the local phrase line, write a local audit event, and commit through real Git with the normal index before protected checks |
 
 ### Blocked In Protected Add/Commit Flow
@@ -99,7 +100,8 @@ first, then `$HOME/.qlty/bin/qlty`.
 | `git commit -a`                            | `COMMIT_QUEUE_COMMIT_ALL_BLOCKED`           |
 | `git commit --no-verify`                   | `COMMIT_QUEUE_NO_VERIFY_BLOCKED`            |
 | `git commit --amend`                       | `COMMIT_QUEUE_AMEND_BLOCKED`                |
-| `git commit path/to/file`                  | `COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED`      |
+| `git commit --only path/to/file`           | `COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED`      |
+| `git commit unstaged/path`                 | `COMMIT_QUEUE_COMMIT_PATHSPEC_NOT_STAGED`   |
 | `git -c ... commit`                        | `COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE`       |
 | `git config core.hooksPath ...`            | `COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED` |
 | `git config hook.* ...`                    | `COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED` |
@@ -178,7 +180,8 @@ Use TDD.
 | Commit after clean add             | Creates commit with attribution trailers                                                            |
 | GUI human bypass                   | Valid local phrase line is stripped before raw-index commit and protected commit checks are skipped |
 | Reserved attribution trailer       | Blocked before Git commit                                                                           |
-| Commit pathspec                    | Blocked before Git can bypass session index                                                         |
+| Commit staged pathspec             | Commits only matching staged session paths                                                          |
+| Commit unstaged pathspec           | Blocked before Git can read unstaged worktree content                                               |
 | Hook config mutation               | Blocked before hooks can be disabled                                                                |
 | `git history` rewrite              | Blocked because it rewrites history and does not run hooks                                          |
 | File drift after add               | Blocked                                                                                             |

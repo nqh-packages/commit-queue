@@ -1,3 +1,6 @@
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { requireAgentIdentity } from "../agent-identity.js";
 import {
   firstReservedCommitTrailer,
@@ -9,6 +12,7 @@ import {
   currentHeadRef,
   listStagedPaths,
   runGit,
+  stagedBlob,
   worktreeBlob,
 } from "../git-runtime.js";
 import { withRepoLock } from "../repo-lock.js";
@@ -27,7 +31,7 @@ export function handleCommit(
   assertNoReservedAttributionTrailers(args, repo, session.id);
 
   withRepoLock(repo, () => {
-    commitWithFreshSession(realGit, repo, args, session.id);
+    commitWithFreshSession(realGit, repo, args, policy.pathspecs, session.id);
   });
 }
 
@@ -86,19 +90,23 @@ function assertNoBlockedPolicy(
     );
   }
 
-  if (policy.pathspecs.length > 0) {
+  const unsupportedPathspecOption = policy.pathspecs.find((pathspec) =>
+    pathspec.startsWith("-"),
+  );
+  if (unsupportedPathspecOption) {
     fail(
       errorPayload({
         code: "COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED",
         title: "Commit pathspec blocked",
         detail:
-          "Commit pathspecs can bypass protected staging and are blocked.",
+          "Commit pathspec options can bypass protected staging and are blocked.",
         context: {
           ...commitContext(args, repo, sessionId),
           pathspecs: policy.pathspecs,
+          unsupported_pathspec_option: unsupportedPathspecOption,
         },
         suggestions: [
-          'Use `git add path/to/file`, then `git commit -m "message"` without path arguments.',
+          'Use plain path arguments after staging, for example `git commit src/file.ts -m "message"`.',
         ],
         retriable: true,
       }),
@@ -110,6 +118,7 @@ function commitWithFreshSession(
   realGit: string,
   repo: string,
   args: string[],
+  pathspecs: string[],
   sessionId: string,
 ): void {
   const freshSession = loadSession(sessionId);
@@ -120,16 +129,34 @@ function commitWithFreshSession(
   assertNoHeadDrift(realGit, repo, freshSession);
   assertSessionHasExpectedStagedPaths(realGit, repo, freshSession);
   assertNoFileDrift(realGit, repo, freshSession);
+  const selectedPaths = selectedCommitPaths(
+    realGit,
+    repo,
+    freshSession,
+    pathspecs,
+    args,
+  );
   const agent = requireAgentIdentity("commit", repo, freshSession);
+  const commitIndexPath =
+    selectedPaths === null
+      ? freshSession.indexPath
+      : filteredCommitIndex(realGit, repo, freshSession, selectedPaths);
 
   const commit = runGit(
     realGit,
-    ["commit", ...args, ...attributionTrailerArgs(freshSession.id, agent)],
+    [
+      "commit",
+      ...commitArgsWithoutPathspecs(args),
+      ...attributionTrailerArgs(freshSession.id, agent),
+    ],
     {
       cwd: repo,
-      env: { GIT_INDEX_FILE: freshSession.indexPath },
+      env: { GIT_INDEX_FILE: commitIndexPath },
     },
   );
+  if (commitIndexPath !== freshSession.indexPath) {
+    rmSync(path.dirname(commitIndexPath), { recursive: true, force: true });
+  }
   if (commit.status !== 0) {
     exitWithResult(commit);
   }
@@ -137,7 +164,11 @@ function commitWithFreshSession(
   runGit(realGit, ["reset", "-q", "--mixed", "HEAD"], { cwd: repo });
 
   freshSession.head = currentHead(realGit, repo);
-  freshSession.stagedPaths = {};
+  freshSession.stagedPaths = recordStagedPaths(
+    realGit,
+    repo,
+    freshSession.indexPath,
+  );
   saveSession(freshSession);
   exitWithResult(commit);
 }
@@ -195,6 +226,187 @@ function attributionTrailerArgs(
     "--trailer",
     `Coding-Agent-Session: ${agent.sessionId}`,
   ];
+}
+
+function selectedCommitPaths(
+  realGit: string,
+  repo: string,
+  session: CommitQueueSession,
+  pathspecs: string[],
+  args: string[],
+): Set<string> | null {
+  if (pathspecs.length === 0) return null;
+
+  const matchingPaths = matchingSessionPaths(
+    realGit,
+    repo,
+    session.indexPath,
+    pathspecs,
+  );
+  const stagedPaths = new Set(Object.keys(session.stagedPaths || {}));
+  const selectedPaths = new Set(
+    [...matchingPaths].filter((matchedPath) => stagedPaths.has(matchedPath)),
+  );
+  if (selectedPaths.size === 0) {
+    fail(
+      errorPayload({
+        code: "COMMIT_QUEUE_COMMIT_PATHSPEC_NOT_STAGED",
+        title: "Commit pathspec not staged",
+        detail:
+          "Commit path arguments must match paths already staged in this commit-queue session.",
+        context: {
+          ...commitContext(args, repo, session.id),
+          pathspecs,
+          staged_paths: Object.keys(session.stagedPaths || {}).sort(),
+        },
+        suggestions: [
+          "Run `git add path/to/file` for the intended paths, then retry the commit.",
+          "Use a path argument that matches the session-staged path set.",
+        ],
+        retriable: true,
+      }),
+    );
+  }
+
+  return selectedPaths;
+}
+
+function matchingSessionPaths(
+  realGit: string,
+  repo: string,
+  indexPath: string,
+  pathspecs: string[],
+): Set<string> {
+  const result = runGit(
+    realGit,
+    ["ls-files", "--full-name", "--cached", "--", ...pathspecs],
+    {
+      cwd: repo,
+      env: { GIT_INDEX_FILE: indexPath },
+    },
+  );
+  if (result.status !== 0) return new Set();
+  return new Set(
+    result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
+}
+
+function filteredCommitIndex(
+  realGit: string,
+  repo: string,
+  session: CommitQueueSession,
+  selectedPaths: Set<string>,
+): string {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "commit-queue-index-"));
+  const tempIndex = path.join(tempDir, "index");
+  copyFileSync(session.indexPath, tempIndex);
+
+  for (const stagedPath of Object.keys(session.stagedPaths || {})) {
+    if (selectedPaths.has(stagedPath)) continue;
+    runGit(realGit, ["reset", "-q", "HEAD", "--", stagedPath], {
+      cwd: repo,
+      env: { GIT_INDEX_FILE: tempIndex },
+    });
+  }
+
+  return tempIndex;
+}
+
+function commitArgsWithoutPathspecs(args: string[]): string[] {
+  const state = {
+    stripped: [] as string[],
+    consumeNext: false,
+    afterSeparator: false,
+  };
+
+  for (const arg of args) {
+    stripCommitArgPathspec(arg, state);
+  }
+
+  return state.stripped;
+}
+
+type CommitArgStripState = {
+  stripped: string[];
+  consumeNext: boolean;
+  afterSeparator: boolean;
+};
+
+function stripCommitArgPathspec(arg: string, state: CommitArgStripState): void {
+  if (state.consumeNext) {
+    state.stripped.push(arg);
+    state.consumeNext = false;
+    return;
+  }
+
+  if (state.afterSeparator) return;
+  if (arg === "--") {
+    state.afterSeparator = true;
+    return;
+  }
+
+  stripCommitOptionOrPathspec(arg, state);
+}
+
+function stripCommitOptionOrPathspec(
+  arg: string,
+  state: CommitArgStripState,
+): void {
+  if (commitLongOptionConsumesNext(arg)) {
+    state.stripped.push(arg);
+    state.consumeNext = !arg.includes("=");
+    return;
+  }
+
+  if (commitShortOptionConsumesNext(arg)) {
+    state.stripped.push(arg);
+    state.consumeNext = true;
+    return;
+  }
+
+  if (arg.startsWith("-")) {
+    state.stripped.push(arg);
+  }
+}
+
+function commitLongOptionConsumesNext(arg: string): boolean {
+  if (arg.includes("=")) return false;
+  return [
+    "--message",
+    "--file",
+    "--reuse-message",
+    "--reedit-message",
+    "--fixup",
+    "--squash",
+    "--author",
+    "--date",
+    "--cleanup",
+    "--trailer",
+    "--template",
+  ].includes(arg);
+}
+
+function commitShortOptionConsumesNext(arg: string): boolean {
+  if (["-m", "-F", "-C", "-c"].includes(arg)) return true;
+  return /^-[A-Za-z]*[mFCc]$/.test(arg);
+}
+
+function recordStagedPaths(
+  realGit: string,
+  repo: string,
+  indexPath: string,
+): CommitQueueSession["stagedPaths"] {
+  const staged: CommitQueueSession["stagedPaths"] = {};
+  for (const relativePath of listStagedPaths(realGit, repo, indexPath)) {
+    staged[relativePath] = {
+      blob: stagedBlob(realGit, repo, indexPath, relativePath),
+      addedAt: new Date().toISOString(),
+    };
+  }
+  return staged;
 }
 
 function assertNoHeadDrift(

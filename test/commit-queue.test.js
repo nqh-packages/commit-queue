@@ -1460,14 +1460,73 @@ test("git history is blocked as an experimental history rewrite", () => {
   }
 });
 
-test("commit pathspecs cannot bypass the session index", () => {
+test("commit pathspecs select already staged session paths", () => {
   const fixture = createFixture();
   try {
-    const env = activateSession(fixture.repo, fixture.state);
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
     writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
     runRealGit(fixture.repo, ["add", "src/a.ts", "src/b.ts"]);
     runRealGit(fixture.repo, ["commit", "-m", "test: track src files"]);
+    const env = activateSession(fixture.repo, fixture.state);
+
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 2;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 2;\n");
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/b.ts"], {
+        state: fixture.state,
+        env,
+      }).status,
+      0,
+    );
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
+        state: fixture.state,
+        env,
+      }).status,
+      0,
+    );
+
+    const result = runCommitQueue(
+      fixture.repo,
+      ["commit", "src/a.ts", "-m", "test: commit selected path"],
+      {
+        state: fixture.state,
+        env,
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(),
+      "test: commit selected path",
+    );
+    assert.match(
+      runRealGit(fixture.repo, ["show", "--name-only", "--pretty=", "HEAD"])
+        .stdout,
+      /^src\/a\.ts$/m,
+    );
+    assert.doesNotMatch(
+      runRealGit(fixture.repo, ["show", "--name-only", "--pretty=", "HEAD"])
+        .stdout,
+      /^src\/b\.ts$/m,
+    );
+    assert.match(
+      runRealGit(fixture.repo, ["status", "--short"]).stdout,
+      /src\/b\.ts/,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("commit pathspecs must match already staged session paths", () => {
+  const fixture = createFixture();
+  try {
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+    runRealGit(fixture.repo, ["add", "src/a.ts", "src/b.ts"]);
+    runRealGit(fixture.repo, ["commit", "-m", "test: track src files"]);
+    const env = activateSession(fixture.repo, fixture.state);
 
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 2;\n");
     writeRepoFile(fixture.repo, "src/b.ts", "export const b = 2;\n");
@@ -1481,7 +1540,7 @@ test("commit pathspecs cannot bypass the session index", () => {
 
     const result = runCommitQueue(
       fixture.repo,
-      ["commit", "src/a.ts", "-m", "test: pathspec"],
+      ["commit", "src/a.ts", "-m", "test: unstaged pathspec"],
       {
         state: fixture.state,
         env,
@@ -1489,7 +1548,7 @@ test("commit pathspecs cannot bypass the session index", () => {
     );
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_COMMIT_PATHSPEC_BLOCKED/);
+    assert.match(result.stderr, /COMMIT_QUEUE_COMMIT_PATHSPEC_NOT_STAGED/);
     assert.equal(
       runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(),
       "test: track src files",
