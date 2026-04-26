@@ -2,12 +2,12 @@
 
 Tiny Git safety wrapper for people running multiple AI coding agents in the same local repos.
 
-| Question | Answer |
-|----------|--------|
-| What is this? | A protected `git` shim plus a raw human `hgit` command |
-| Why use it? | Agents stop committing over each other |
-| Why it works | Each agent session gets isolated staging, commits serialize, and commits carry agent attribution |
-| Status | Local v1 |
+| Question      | Answer                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| What is this? | A protected `git` shim plus a raw human `hgit` command                                           |
+| Why use it?   | Agents stop committing over each other                                                           |
+| Why it works  | Each agent session gets isolated staging, commits serialize, and commits carry agent attribution |
+| Status        | Local v1                                                                                         |
 
 Agent flow:
 
@@ -29,11 +29,11 @@ Both explicit variables are required. `COMMIT_QUEUE_AGENT_SESSION` alone is not 
 
 Built-in identity adapters:
 
-| Adapter | Env |
-|---------|-----|
+| Adapter    | Env                                                |
+| ---------- | -------------------------------------------------- |
 | `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
-| `codex` | `CODEX_THREAD_ID` |
-| `opencode` | `OPENCODE_SESSION_ID` |
+| `codex`    | `CODEX_THREAD_ID`                                  |
+| `opencode` | `OPENCODE_SESSION_ID`                              |
 
 Human flow, from an interactive terminal:
 
@@ -45,10 +45,10 @@ hgit commit -m "manual commit"
 
 ## What Is This?
 
-| Command | Meaning |
-|---------|---------|
-| `git` | Protected Git for agents |
-| `hgit` | Raw Git for humans |
+| Command | Meaning                  |
+| ------- | ------------------------ |
+| `git`   | Protected Git for agents |
+| `hgit`  | Raw Git for humans       |
 
 It is enabled for every Git repo by default. A repo can opt out with:
 
@@ -75,25 +75,25 @@ Now Agent A's commit may contain Agent B's work.
 
 ## Why It Works
 
-| Problem | commit-queue Rule |
-|---------|-------------------|
-| Agents share one Git index | Each session gets its own index with `GIT_INDEX_FILE` |
-| Agents use broad staging | `git add .`, `git add -A`, and `git commit -a` are blocked |
-| Agents commit at the same time | Commits run through a per-repo lock |
-| A stale lock remains | Lock owner metadata lets the wrapper recover it automatically |
-| A file changes after staging | Commit blocks until the agent stages again |
-| Commit history loses agent context | Protected commits append attribution trailers |
-| Humans need escape | `hgit` calls real Git only from an interactive terminal |
+| Problem                            | commit-queue Rule                                             |
+| ---------------------------------- | ------------------------------------------------------------- |
+| Agents share one Git index         | Each session gets its own index with `GIT_INDEX_FILE`         |
+| Agents use broad staging           | `git add .`, `git add -A`, and `git commit -a` are blocked    |
+| Agents commit at the same time     | Commits run through a per-repo lock                           |
+| A stale lock remains               | Lock owner metadata lets the wrapper recover it automatically |
+| A file changes after staging       | Commit blocks until the agent stages again                    |
+| Commit history loses agent context | Protected commits append attribution trailers                 |
+| Humans need escape                 | `hgit` calls real Git only from an interactive terminal       |
 
 ## Why It Is Good
 
-| Good Part | Why It Matters |
-|-----------|----------------|
-| Normal agent commands | No new agent skill per tool |
-| No worktree requirement | No extra pruning, trimming, folder cleanup |
-| No daemon | Nothing to keep alive |
-| No per-tool hook setup | Claude Code, Codex, and shell agents hit the same wrapper |
-| Raw human escape | `hgit` stays available for interactive operators |
+| Good Part               | Why It Matters                                            |
+| ----------------------- | --------------------------------------------------------- |
+| Normal agent commands   | No new agent skill per tool                               |
+| No worktree requirement | No extra pruning, trimming, folder cleanup                |
+| No daemon               | Nothing to keep alive                                     |
+| No per-tool hook setup  | Claude Code, Codex, and shell agents hit the same wrapper |
+| Raw human escape        | `hgit` stays available for interactive operators          |
 
 ## How To Use It
 

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$repo_root"
+
+unset GIT_INDEX_FILE
+unset COMMIT_QUEUE_ID
+unset COMMIT_QUEUE_REPO
+unset COMMIT_QUEUE_AGENT
+unset COMMIT_QUEUE_AGENT_SESSION
+
+exec npm run quality

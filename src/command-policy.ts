@@ -99,15 +99,18 @@ export function parseInvocation(args: string[]): Invocation {
 }
 
 export function hasGlobalConfigOverride(globalArgs: string[]): boolean {
-  return globalArgs.some((arg) => (
-    arg === "-c" ||
-    arg.startsWith("-c") ||
-    arg === "--config-env" ||
-    arg.startsWith("--config-env=")
-  ));
+  return globalArgs.some(
+    (arg) =>
+      arg === "-c" ||
+      arg.startsWith("-c") ||
+      arg === "--config-env" ||
+      arg.startsWith("--config-env="),
+  );
 }
 
-export function firstUnsafeConfigMutation(args: string[]): UnsafeConfigMutation | null {
+export function firstUnsafeConfigMutation(
+  args: string[],
+): UnsafeConfigMutation | null {
   if (args.some((arg) => arg === "--edit" || arg === "-e")) {
     return { key: "--edit", reason: "config_editor" };
   }
@@ -130,35 +133,38 @@ export function firstUnsafeConfigMutation(args: string[]): UnsafeConfigMutation 
 
 export function isConfigReadOnly(args: string[]): boolean {
   if (args.length === 1 && !args[0]?.startsWith("-")) return true;
-  return args.some((arg) => [
-    "--get",
-    "--get-all",
-    "--get-regexp",
-    "--get-urlmatch",
-    "--list",
-    "-l",
-    "--show-origin",
-    "--show-scope",
-    "--name-only",
-  ].includes(arg));
+  return args.some((arg) =>
+    [
+      "--get",
+      "--get-all",
+      "--get-regexp",
+      "--get-urlmatch",
+      "--list",
+      "-l",
+      "--show-origin",
+      "--show-scope",
+      "--name-only",
+    ].includes(arg),
+  );
 }
 
 export function hasBroadAdd(args: string[]): boolean {
-  return args.some((arg) => (
-    arg === "." ||
-    arg === ":/" ||
-    arg === ":/*" ||
-    arg === "-A" ||
-    arg === "--all" ||
-    arg === "-u" ||
-    arg === "--update" ||
-    arg === "--pathspec-from-file" ||
-    arg === "--pathspec-file-nul" ||
-    arg.startsWith("-A") ||
-    arg.startsWith("-u") ||
-    arg.startsWith("--pathspec-from-file=") ||
-    isBroadPathspec(arg)
-  ));
+  return args.some(
+    (arg) =>
+      arg === "." ||
+      arg === ":/" ||
+      arg === ":/*" ||
+      arg === "-A" ||
+      arg === "--all" ||
+      arg === "-u" ||
+      arg === "--update" ||
+      arg === "--pathspec-from-file" ||
+      arg === "--pathspec-file-nul" ||
+      arg.startsWith("-A") ||
+      arg.startsWith("-u") ||
+      arg.startsWith("--pathspec-from-file=") ||
+      isBroadPathspec(arg),
+  );
 }
 
 export function explicitPathArgs(args: string[]): string[] {
@@ -169,7 +175,11 @@ export function firstUnsafeAddPathspec(
   realGit: string,
   repo: string,
   pathArgs: string[],
-  options: { commandCwd?: string; pathBaseCwd?: string; globalArgs?: string[] } = {},
+  options: {
+    commandCwd?: string;
+    pathBaseCwd?: string;
+    globalArgs?: string[];
+  } = {},
 ): UnsafeAddPathspec | null {
   const commandCwd = options.commandCwd || repo;
   const pathBaseCwd = options.pathBaseCwd || repo;
@@ -179,12 +189,16 @@ export function firstUnsafeAddPathspec(
       return { path: pathArg, reason: "wildcard" };
     }
 
-    const absolutePath = path.isAbsolute(pathArg) ? pathArg : path.join(pathBaseCwd, pathArg);
+    const absolutePath = path.isAbsolute(pathArg)
+      ? pathArg
+      : path.join(pathBaseCwd, pathArg);
     if (existsSync(absolutePath) && lstatSync(absolutePath).isDirectory()) {
       return { path: pathArg, reason: "directory" };
     }
 
-    const matchOptions: { cwd?: string; globalArgs?: string[] } = { cwd: commandCwd };
+    const matchOptions: { cwd?: string; globalArgs?: string[] } = {
+      cwd: commandCwd,
+    };
     if (options.globalArgs) matchOptions.globalArgs = options.globalArgs;
     const matches = matchingGitPaths(realGit, repo, pathArg, matchOptions);
     if (matches.length > 1) {
@@ -236,7 +250,10 @@ export function inspectCommitArgs(args: string[]): CommitPolicy {
       continue;
     }
 
-    if (["--only", "--include", "--pathspec-file-nul"].includes(arg) || arg.startsWith("--pathspec-from-file")) {
+    if (
+      ["--only", "--include", "--pathspec-file-nul"].includes(arg) ||
+      arg.startsWith("--pathspec-from-file")
+    ) {
       policy.pathspecs.push(arg);
       continue;
     }
@@ -264,7 +281,9 @@ export function inspectCommitArgs(args: string[]): CommitPolicy {
   return policy;
 }
 
-export function firstReservedCommitTrailer(args: string[]): ReservedCommitTrailer | null {
+export function firstReservedCommitTrailer(
+  args: string[],
+): ReservedCommitTrailer | null {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || "";
     let trailerValue: string | null = null;
@@ -310,7 +329,8 @@ function isBroadPathspec(arg: string): boolean {
   const magic = arg.match(/^:\(([^)]*)\)(.*)$/);
   if (!magic) return false;
 
-  const modifiers = magic[1]?.split(",").map((modifier) => modifier.trim()) || [];
+  const modifiers =
+    magic[1]?.split(",").map((modifier) => modifier.trim()) || [];
   const pattern = magic[2] || "";
   return modifiers.includes("glob") && (pattern === "**" || pattern === "**/*");
 }
@@ -329,7 +349,8 @@ function inspectCommitShortOptions(arg: string, policy: CommitPolicy): void {
   const cluster = arg.slice(1);
   if (cluster.includes("a")) policy.commitAll = true;
   if (cluster.includes("n")) policy.noVerify = true;
-  if (cluster.includes("o") || cluster.includes("i")) policy.pathspecs.push(arg);
+  if (cluster.includes("o") || cluster.includes("i"))
+    policy.pathspecs.push(arg);
 }
 
 function commitShortOptionConsumesNext(arg: string): boolean {
@@ -341,7 +362,11 @@ function reservedTrailerKey(value: string): string | null {
   const key = value.split(/[:=]/, 1)[0]?.trim().toLowerCase();
   if (!key) return null;
 
-  if (["commit-queue-session", "coding-agent", "coding-agent-session"].includes(key)) {
+  if (
+    ["commit-queue-session", "coding-agent", "coding-agent-session"].includes(
+      key,
+    )
+  ) {
     return key;
   }
 

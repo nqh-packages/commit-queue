@@ -18,13 +18,13 @@ So `commit-queue` wraps `git`.
 
 `commit-queue` is a small local Git shim for AI-agent-heavy development.
 
-| It Is | It Is Not |
-|-------|-----------|
-| A protected `git` command | A new version control system |
-| A local safety layer around staging and commits | A hosted queue service |
-| A way to make agents use the same Git protocol | A replacement for good task boundaries |
-| A guard against mixed commits | A magic conflict resolver |
-| A human escape hatch with `hgit` | A prison around Git |
+| It Is                                           | It Is Not                              |
+| ----------------------------------------------- | -------------------------------------- |
+| A protected `git` command                       | A new version control system           |
+| A local safety layer around staging and commits | A hosted queue service                 |
+| A way to make agents use the same Git protocol  | A replacement for good task boundaries |
+| A guard against mixed commits                   | A magic conflict resolver              |
+| A human escape hatch with `hgit`                | A prison around Git                    |
 
 The point is not to make Git clever. The point is to remove one stupid failure mode.
 
@@ -46,13 +46,13 @@ That is not a rare edge case once agents run in parallel. That is Tuesday.
 
 ## Why Existing Answers Are Not Enough
 
-| Answer | Why It Makes Sense | Why I Am Not Starting There |
-|--------|--------------------|-----------------------------|
-| `git worktree` | Real isolation, built into Git | Adds folders, cleanup, pruning, branch hygiene, and more operating context |
-| Git hooks | Good for checks before commit | Hooks do not isolate staging, and every agent/tool has its own setup habits |
-| Agent-specific rules | Easy for one agent | Does not scale across Claude Code, Codex, terminal agents, scripts, and future tools |
-| Teach agents better Git | Sounds nice | Agents still forget, race, and use broad commands |
-| New VCS like `jj` | Good ideas, cleaner mental model | Different workflow, different context, more migration |
+| Answer                  | Why It Makes Sense               | Why I Am Not Starting There                                                          |
+| ----------------------- | -------------------------------- | ------------------------------------------------------------------------------------ |
+| `git worktree`          | Real isolation, built into Git   | Adds folders, cleanup, pruning, branch hygiene, and more operating context           |
+| Git hooks               | Good for checks before commit    | Hooks do not isolate staging, and every agent/tool has its own setup habits          |
+| Agent-specific rules    | Easy for one agent               | Does not scale across Claude Code, Codex, terminal agents, scripts, and future tools |
+| Teach agents better Git | Sounds nice                      | Agents still forget, race, and use broad commands                                    |
+| New VCS like `jj`       | Good ideas, cleaner mental model | Different workflow, different context, more migration                                |
 
 I want the boring thing that catches the common mess without changing how every repo works.
 
@@ -79,32 +79,32 @@ Just one shim.
 
 ## User Model
 
-| User | What They Want | Command |
-|------|----------------|---------|
-| Agent | Safe normal Git flow | `git getID`, `git add path`, `git commit -m "..."` |
-| Human | Raw Git when needed | `hgit ...` |
-| Future user | Install once, understand fast | `git` protected, `hgit` raw |
+| User        | What They Want                | Command                                            |
+| ----------- | ----------------------------- | -------------------------------------------------- |
+| Agent       | Safe normal Git flow          | `git getID`, `git add path`, `git commit -m "..."` |
+| Human       | Raw Git when needed           | `hgit ...`                                         |
+| Future user | Install once, understand fast | `git` protected, `hgit` raw                        |
 
 ## Product Contract
 
-| Area | Decision |
-|------|----------|
-| Name | `commit-queue` |
-| Protected command | `git` |
-| Human/raw command | `hgit` |
-| Default scope | Enabled for every Git repo |
-| Opt-out | `.commit-queue.json` with `{ "enabled": false }` |
-| Session command | `eval "$(git getID)"` |
-| Session identity | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
-| Agent attribution | `git getID` requires identity from the adapter registry or explicit env vars |
-| Commit attribution | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` trailers |
-| GUI human bypass | A local hash-authorized standalone message line makes `git commit` call real Git directly; commit-queue strips the line and uses the normal Git index |
-| Installed runtime refresh | This repo refreshes `~/.commit-queue` from committed `HEAD` after commit, merge, and checkout |
-| Refresh failure | Failed refresh writes a stale marker; protected mutations in this repo block until install refresh succeeds |
-| Staging | Explicit file paths only |
-| Staging isolation | One Git index per session through `GIT_INDEX_FILE` |
-| Commit safety | Repo lock, staged-path check, drift check, `HEAD` check |
-| State | `~/.commit-queue/` |
+| Area                      | Decision                                                                                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name                      | `commit-queue`                                                                                                                                        |
+| Protected command         | `git`                                                                                                                                                 |
+| Human/raw command         | `hgit`                                                                                                                                                |
+| Default scope             | Enabled for every Git repo                                                                                                                            |
+| Opt-out                   | `.commit-queue.json` with `{ "enabled": false }`                                                                                                      |
+| Session command           | `eval "$(git getID)"`                                                                                                                                 |
+| Session identity          | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION`                                                            |
+| Agent attribution         | `git getID` requires identity from the adapter registry or explicit env vars                                                                          |
+| Commit attribution        | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session` trailers                                                  |
+| GUI human bypass          | A local hash-authorized standalone message line makes `git commit` call real Git directly; commit-queue strips the line and uses the normal Git index |
+| Installed runtime refresh | This repo refreshes `~/.commit-queue` from committed `HEAD` after commit, merge, and checkout                                                         |
+| Refresh failure           | Failed refresh writes a stale marker; protected mutations in this repo block until install refresh succeeds                                           |
+| Staging                   | Explicit file paths only                                                                                                                              |
+| Staging isolation         | One Git index per session through `GIT_INDEX_FILE`                                                                                                    |
+| Commit safety             | Repo lock, staged-path check, drift check, `HEAD` check                                                                                               |
+| State                     | `~/.commit-queue/`                                                                                                                                    |
 
 ## Command Model
 
@@ -163,11 +163,11 @@ Agents cannot supply those reserved trailer keys themselves. `commit-queue` owns
 
 Agent detection is intentionally adapter-based:
 
-| Adapter | Env |
-|---------|-----|
+| Adapter    | Env                                                |
+| ---------- | -------------------------------------------------- |
 | `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
-| `codex` | `CODEX_THREAD_ID` |
-| `opencode` | `OPENCODE_SESSION_ID` |
+| `codex`    | `CODEX_THREAD_ID`                                  |
+| `opencode` | `OPENCODE_SESSION_ID`                              |
 
 The core contract is still platform-agnostic. New platforms add a small adapter; unsupported platforms use the explicit env adapter.
 The explicit adapter requires both values because the agent name identifies the coding platform and the session id identifies the platform run.
@@ -176,41 +176,41 @@ The explicit adapter requires both values because the agent name identifies the 
 
 ### Owned Commands
 
-| Command | Behavior |
-|---------|----------|
-| `git getID` | Detects agent identity, creates a session, and prints shell exports |
-| `git add explicit/path` | Stage into this session's private index |
-| `git commit -m "..."` | Lock repo, verify, append attribution trailers, commit through real Git |
+| Command                                       | Behavior                                                                                                                          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `git getID`                                   | Detects agent identity, creates a session, and prints shell exports                                                               |
+| `git add explicit/path`                       | Stage into this session's private index                                                                                           |
+| `git commit -m "..."`                         | Lock repo, verify, append attribution trailers, commit through real Git                                                           |
 | `git commit ...` with local human phrase line | Strip the local phrase line, write a local audit event, and commit through real Git with the normal index before protected checks |
 
 ### Pass Through
 
-| Command | Why |
-|---------|-----|
+| Command                   | Why                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------ |
 | Any non-owned Git command | `commit-queue` is not a Git firewall; it only protects staging and commit boundaries |
 
 Examples: `git clone`, `git fetch`, `git tag`, `git branch`, harmless `git config`, `git checkout`, `git reset`, and future Git commands all pass through to real Git.
 
 ### Blocked For Protected Commits In v1
 
-| Command | Why |
-|---------|-----|
-| `git add .` | It can grab other agents' files |
-| `git add -A` | It can grab unrelated edits and deletes |
-| `git add -u` | It can grab unrelated deletions |
-| `git add dir/` | It can grab many files under one broad path |
-| `git add "*.ts"` | It can expand into unrelated files |
-| `git add --pathspec-from-file` | It hides the actual staged paths from the command line |
-| `git commit -a` | It bypasses explicit staging |
-| `git commit --no-verify` | It skips repository hooks |
-| `git commit --amend` | It rewrites history |
-| `git commit path/to/file` | It can bypass the private session index |
-| `git -c ... commit` | Inline config can bypass protected commit assumptions |
-| `git config core.hooksPath ...` | It can disable repository hooks before commit |
-| `git config hook.* ...` | Git 2.54 config hooks are repository gate configuration |
-| `git config --edit` | It can mutate hook configuration without an inspectable key |
-| `git history ...` | It rewrites history and does not currently run hooks |
-| `git commit --trailer "Coding-Agent: ..."` | Attribution trailers are owned by `commit-queue` |
+| Command                                    | Why                                                         |
+| ------------------------------------------ | ----------------------------------------------------------- |
+| `git add .`                                | It can grab other agents' files                             |
+| `git add -A`                               | It can grab unrelated edits and deletes                     |
+| `git add -u`                               | It can grab unrelated deletions                             |
+| `git add dir/`                             | It can grab many files under one broad path                 |
+| `git add "*.ts"`                           | It can expand into unrelated files                          |
+| `git add --pathspec-from-file`             | It hides the actual staged paths from the command line      |
+| `git commit -a`                            | It bypasses explicit staging                                |
+| `git commit --no-verify`                   | It skips repository hooks                                   |
+| `git commit --amend`                       | It rewrites history                                         |
+| `git commit path/to/file`                  | It can bypass the private session index                     |
+| `git -c ... commit`                        | Inline config can bypass protected commit assumptions       |
+| `git config core.hooksPath ...`            | It can disable repository hooks before commit               |
+| `git config hook.* ...`                    | Git 2.54 config hooks are repository gate configuration     |
+| `git config --edit`                        | It can mutate hook configuration without an inspectable key |
+| `git history ...`                          | It rewrites history and does not currently run hooks        |
+| `git commit --trailer "Coding-Agent: ..."` | Attribution trailers are owned by `commit-queue`            |
 
 Broad commands are not evil. They are just wrong when five agents share one checkout.
 
@@ -235,11 +235,11 @@ It blocks and asks the agent to stage again.
 
 ### Minimal v1 Check
 
-| Check | Captured At `git add` | Verified At `git commit` |
-|-------|------------------------|---------------------------|
-| Path set | Repo-relative paths | Commit only includes those paths |
+| Check          | Captured At `git add`  | Verified At `git commit`            |
+| -------------- | ---------------------- | ----------------------------------- |
+| Path set       | Repo-relative paths    | Commit only includes those paths    |
 | Staged content | Blob hash or file hash | Content still matches staged intent |
-| Parent commit | `HEAD` SHA | Parent did not move unexpectedly |
+| Parent commit  | `HEAD` SHA             | Parent did not move unexpectedly    |
 
 ### Failure
 
@@ -340,32 +340,32 @@ shell command
 
 ## Components
 
-| Component | Responsibility |
-|-----------|----------------|
-| `bin/git` | Protected shim entrypoint |
-| `bin/hgit` | Raw Git passthrough for interactive humans |
-| `src/cli.ts` | Orchestrates command routing only |
-| `src/command-policy.ts` | SSOT for protected add/commit option shapes |
-| `src/git-runtime.ts` | Resolves real Git, repo root, refs, staged paths, and blobs |
-| `src/session-store.ts` | Creates and loads `COMMIT_QUEUE_ID` metadata and private indexes |
-| `src/agent-adapters.ts` | Registry for platform-specific agent identity detection |
+| Component               | Responsibility                                                          |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `bin/git`               | Protected shim entrypoint                                               |
+| `bin/hgit`              | Raw Git passthrough for interactive humans                              |
+| `src/cli.ts`            | Orchestrates command routing only                                       |
+| `src/command-policy.ts` | SSOT for protected add/commit option shapes                             |
+| `src/git-runtime.ts`    | Resolves real Git, repo root, refs, staged paths, and blobs             |
+| `src/session-store.ts`  | Creates and loads `COMMIT_QUEUE_ID` metadata and private indexes        |
+| `src/agent-adapters.ts` | Registry for platform-specific agent identity detection                 |
 | `src/agent-identity.ts` | Validates detected coding-agent attribution and formats recovery errors |
-| `src/repo-lock.ts` | Serializes commit/ref mutation per repo |
-| `src/commands/*` | Owns behavior for supported protected commands |
-| `src/errors.ts` | Prints structured agent-readable failures |
-| Event logger | Writes JSONL audit trail |
+| `src/repo-lock.ts`      | Serializes commit/ref mutation per repo                                 |
+| `src/commands/*`        | Owns behavior for supported protected commands                          |
+| `src/errors.ts`         | Prints structured agent-readable failures                               |
+| Event logger            | Writes JSONL audit trail                                                |
 
 ## Error Contract
 
 Agent errors need to be useful enough that the next command is obvious.
 
-| Field | Required | Why |
-|-------|----------|-----|
-| `error_code` | Yes | Machine-readable recovery |
-| `detail` | Yes | What failed |
-| `context` | Yes | Repo, command, path, session |
-| `suggestions` | Yes | Exact next commands |
-| `retriable` | Yes | Whether the agent can fix and retry |
+| Field         | Required | Why                                 |
+| ------------- | -------- | ----------------------------------- |
+| `error_code`  | Yes      | Machine-readable recovery           |
+| `detail`      | Yes      | What failed                         |
+| `context`     | Yes      | Repo, command, path, session        |
+| `suggestions` | Yes      | Exact next commands                 |
+| `retriable`   | Yes      | Whether the agent can fix and retry |
 
 ### Human Text
 
@@ -418,87 +418,87 @@ Agent-facing errors must not mention `hgit` or bypass commands.
     events.jsonl
 ```
 
-| State | Purpose |
-|-------|---------|
-| Session JSON | Repo, session ID, created time, starting `HEAD`, agent identity, staged paths |
-| Session index | Private Git index for that agent |
-| Repo lock | Prevents simultaneous commit/ref mutation |
-| Event log | Debug trail for humans |
+| State         | Purpose                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| Session JSON  | Repo, session ID, created time, starting `HEAD`, agent identity, staged paths |
+| Session index | Private Git index for that agent                                              |
+| Repo lock     | Prevents simultaneous commit/ref mutation                                     |
+| Event log     | Debug trail for humans                                                        |
 
 ## v1 Behavior Matrix
 
-| Scenario | Expected Result |
-|----------|-----------------|
-| Agent runs `git add src/a.ts` without session | Block |
-| Agent runs `eval "$(git getID)"` | Export queue and agent identity variables |
-| Agent runs `git getID` without agent identity | Block with `COMMIT_QUEUE_AGENT_ID_REQUIRED` |
-| Agent runs `git add src/a.ts` with session | Stage into session index |
-| Agent runs `git add .` with session | Block |
-| Agent runs `git add dir/` with session | Block |
-| Agent runs `git commit -m "fix: a"` with clean session | Commit through repo lock with attribution trailers |
-| Agent supplies reserved attribution trailer | Block with `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED` |
-| Agent runs `git commit src/a.ts -m "fix: a"` | Block |
-| Staged file changed after add | Block with `COMMIT_QUEUE_FILE_DRIFT` |
-| `HEAD` changed unexpectedly | Block with `COMMIT_QUEUE_HEAD_DRIFT` |
-| Human runs `hgit commit -m "..."` in an interactive terminal | Raw Git passthrough |
-| Human runs GUI commit with valid local phrase line | Strip phrase line and commit through raw Git index before protected checks |
-| Repo has `{ "enabled": false }` | Raw Git passthrough |
+| Scenario                                                     | Expected Result                                                            |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Agent runs `git add src/a.ts` without session                | Block                                                                      |
+| Agent runs `eval "$(git getID)"`                             | Export queue and agent identity variables                                  |
+| Agent runs `git getID` without agent identity                | Block with `COMMIT_QUEUE_AGENT_ID_REQUIRED`                                |
+| Agent runs `git add src/a.ts` with session                   | Stage into session index                                                   |
+| Agent runs `git add .` with session                          | Block                                                                      |
+| Agent runs `git add dir/` with session                       | Block                                                                      |
+| Agent runs `git commit -m "fix: a"` with clean session       | Commit through repo lock with attribution trailers                         |
+| Agent supplies reserved attribution trailer                  | Block with `COMMIT_QUEUE_RESERVED_TRAILER_BLOCKED`                         |
+| Agent runs `git commit src/a.ts -m "fix: a"`                 | Block                                                                      |
+| Staged file changed after add                                | Block with `COMMIT_QUEUE_FILE_DRIFT`                                       |
+| `HEAD` changed unexpectedly                                  | Block with `COMMIT_QUEUE_HEAD_DRIFT`                                       |
+| Human runs `hgit commit -m "..."` in an interactive terminal | Raw Git passthrough                                                        |
+| Human runs GUI commit with valid local phrase line           | Strip phrase line and commit through raw Git index before protected checks |
+| Repo has `{ "enabled": false }`                              | Raw Git passthrough                                                        |
 
 ## Testing Standard
 
 Tests use real temporary Git repositories. No fake Git behavior unless the unit is pure parsing.
 
-| Layer | Target | Tool |
-|-------|--------|------|
-| Unit | Command parsing, protected command policy, error formatting | `node:test` |
-| Integration | Shim behavior in temp repos | `node:test`, real Git |
-| Concurrency | Lock and simultaneous commit behavior | Child processes |
+| Layer       | Target                                                      | Tool                  |
+| ----------- | ----------------------------------------------------------- | --------------------- |
+| Unit        | Command parsing, protected command policy, error formatting | `node:test`           |
+| Integration | Shim behavior in temp repos                                 | `node:test`, real Git |
+| Concurrency | Lock and simultaneous commit behavior                       | Child processes       |
 
 ### Required Cases
 
-| Case | Assertion |
-|------|-----------|
-| Session required | Mutating command fails before `git getID` |
-| Explicit path only | `git add .` and `git add -A` fail |
-| Private index | `git add file` does not pollute shared index |
-| Commit lock | Concurrent commits serialize |
-| Drift detection | Commit fails if staged file changed after add |
-| `HEAD` drift | Commit fails if parent changed unexpectedly |
-| Opt-out | Repo config disables wrapper behavior |
-| Human passthrough | Non-interactive shells are blocked |
-| Error structure | Blocked command includes code and suggestions |
+| Case                        | Assertion                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------- |
+| Session required            | Mutating command fails before `git getID`                                              |
+| Explicit path only          | `git add .` and `git add -A` fail                                                      |
+| Private index               | `git add file` does not pollute shared index                                           |
+| Commit lock                 | Concurrent commits serialize                                                           |
+| Drift detection             | Commit fails if staged file changed after add                                          |
+| `HEAD` drift                | Commit fails if parent changed unexpectedly                                            |
+| Opt-out                     | Repo config disables wrapper behavior                                                  |
+| Human passthrough           | Non-interactive shells are blocked                                                     |
+| Error structure             | Blocked command includes code and suggestions                                          |
 | Runtime refresh enforcement | Failed installed-runtime refresh blocks protected mutations until the refresh succeeds |
 
 ## Implementation Constraints
 
-| Constraint | Rule |
-|------------|------|
-| Runtime | Node.js CLI |
-| Runtime dependencies | Zero for v1 |
-| Platform | macOS first, portable shell assumptions where easy |
-| Real Git | Resolve safely and never recurse into shim |
-| File writes | Atomic writes for session JSON |
-| Locks | Stale-lock recovery required |
-| Logs | JSONL, no secrets |
-| Agent errors | No bypass hints |
+| Constraint           | Rule                                               |
+| -------------------- | -------------------------------------------------- |
+| Runtime              | Node.js CLI                                        |
+| Runtime dependencies | Zero for v1                                        |
+| Platform             | macOS first, portable shell assumptions where easy |
+| Real Git             | Resolve safely and never recurse into shim         |
+| File writes          | Atomic writes for session JSON                     |
+| Locks                | Stale-lock recovery required                       |
+| Logs                 | JSONL, no secrets                                  |
+| Agent errors         | No bypass hints                                    |
 
 ## Future Versions
 
-| Version | Capability | Trigger |
-|---------|------------|---------|
-| v1 | Protected `git`, `hgit`, session, explicit add, commit lock, drift check | Initial usable release |
-| v1.1 | `git queue status`, `git queue sessions`, cleanup | Debugging stale sessions |
-| v1.2 | Safe `git rm` and rename tracking | Agents need delete/rename support |
-| v2 | Optional path claims | Same-file conflicts happen too often |
-| v2 | Optional background queue worker | Need queued commits after agents exit |
-| v3 | Team policy presets | Public package needs presets |
+| Version | Capability                                                               | Trigger                               |
+| ------- | ------------------------------------------------------------------------ | ------------------------------------- |
+| v1      | Protected `git`, `hgit`, session, explicit add, commit lock, drift check | Initial usable release                |
+| v1.1    | `git queue status`, `git queue sessions`, cleanup                        | Debugging stale sessions              |
+| v1.2    | Safe `git rm` and rename tracking                                        | Agents need delete/rename support     |
+| v2      | Optional path claims                                                     | Same-file conflicts happen too often  |
+| v2      | Optional background queue worker                                         | Need queued commits after agents exit |
+| v3      | Team policy presets                                                      | Public package needs presets          |
 
 ## What Good Looks Like
 
-| Outcome | Signal |
-|---------|--------|
-| Agents stop committing over each other | Concurrent commits serialize cleanly |
-| Mixed commits become rare | Commits contain only session-staged paths |
-| Agents recover by themselves | Error output gives the exact next command |
-| Humans stay in control | `hgit` works when I need raw Git |
-| The tool stays boring | No daemon, no watcher, no new VCS |
+| Outcome                                | Signal                                    |
+| -------------------------------------- | ----------------------------------------- |
+| Agents stop committing over each other | Concurrent commits serialize cleanly      |
+| Mixed commits become rare              | Commits contain only session-staged paths |
+| Agents recover by themselves           | Error output gives the exact next command |
+| Humans stay in control                 | `hgit` works when I need raw Git          |
+| The tool stays boring                  | No daemon, no watcher, no new VCS         |

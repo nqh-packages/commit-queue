@@ -2,20 +2,26 @@ import type { AgentIdentity } from "./types.js";
 
 const EXPLICIT_AGENT_ENV = "COMMIT_QUEUE_AGENT";
 const EXPLICIT_AGENT_SESSION_ENV = "COMMIT_QUEUE_AGENT_SESSION";
-const EXPLICIT_AGENT_ENV_PAIR = [EXPLICIT_AGENT_ENV, EXPLICIT_AGENT_SESSION_ENV] as const;
+const EXPLICIT_AGENT_ENV_PAIR = [
+  EXPLICIT_AGENT_ENV,
+  EXPLICIT_AGENT_SESSION_ENV,
+] as const;
 
-export type AgentIdentityAdapterDetection = {
-  status: "detected";
-  adapter: string;
-  agent: AgentIdentity;
-} | {
-  status: "blocked";
-  adapter: string;
-  reason: string;
-  context: Record<string, unknown>;
-} | {
-  status: "not_detected";
-};
+export type AgentIdentityAdapterDetection =
+  | {
+      status: "detected";
+      adapter: string;
+      agent: AgentIdentity;
+    }
+  | {
+      status: "blocked";
+      adapter: string;
+      reason: string;
+      context: Record<string, unknown>;
+    }
+  | {
+      status: "not_detected";
+    };
 
 export type AgentIdentityAdapter = {
   name: string;
@@ -124,14 +130,20 @@ function optionalEnv(env: NodeJS.ProcessEnv, name: string): string | null {
   return value ? value : null;
 }
 
-function receivedExplicitEnv(explicitAgent: string | null, explicitSession: string | null): string[] {
+function receivedExplicitEnv(
+  explicitAgent: string | null,
+  explicitSession: string | null,
+): string[] {
   return [
     ...(explicitAgent ? [EXPLICIT_AGENT_ENV] : []),
     ...(explicitSession ? [EXPLICIT_AGENT_SESSION_ENV] : []),
   ];
 }
 
-function missingExplicitEnv(explicitAgent: string | null, explicitSession: string | null): string[] {
+function missingExplicitEnv(
+  explicitAgent: string | null,
+  explicitSession: string | null,
+): string[] {
   return [
     ...(explicitAgent ? [] : [EXPLICIT_AGENT_ENV]),
     ...(explicitSession ? [] : [EXPLICIT_AGENT_SESSION_ENV]),

@@ -5,9 +5,16 @@ export function hash(value: string): string {
 }
 
 export function timestampId(): string {
-  return new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  return new Date()
+    .toISOString()
+    .replace(/[-:.TZ]/g, "")
+    .slice(0, 14);
 }
 
 export function escapeDoubleQuoted(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("$", "\\$").replaceAll("`", "\\`").replaceAll('"', '\\"');
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("$", "\\$")
+    .replaceAll("`", "\\`")
+    .replaceAll('"', '\\"');
 }

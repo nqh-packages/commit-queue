@@ -8,14 +8,14 @@ Prevent pi-driven agents from creating mixed or unsafe Git commits in a shared c
 
 This is a **pi-native Git safety layer**, not a protected `git` shim.
 
-| Concern | Decision |
-|---|---|
-| Runtime | pi extension(s) |
-| Choke point | pi `bash` / `user_bash` interception + native Git tools |
-| Raw shell Git | Read-only only |
-| Git mutation | Native pi tools only |
-| Index isolation | Hidden per-pi-session private index via `GIT_INDEX_FILE` |
-| Human bypass | Outside scope for the extension; users can still use normal terminal Git outside pi |
+| Concern         | Decision                                                                            |
+| --------------- | ----------------------------------------------------------------------------------- |
+| Runtime         | pi extension(s)                                                                     |
+| Choke point     | pi `bash` / `user_bash` interception + native Git tools                             |
+| Raw shell Git   | Read-only only                                                                      |
+| Git mutation    | Native pi tools only                                                                |
+| Index isolation | Hidden per-pi-session private index via `GIT_INDEX_FILE`                            |
+| Human bypass    | Outside scope for the extension; users can still use normal terminal Git outside pi |
 
 ## Core Rule
 
@@ -28,6 +28,7 @@ Inside pi:
 ## Why This Exists
 
 Multiple pi sessions in the same repo can still:
+
 - edit unrelated files in parallel
 - stage too broadly
 - commit each other's work accidentally
@@ -36,13 +37,13 @@ The goal is to make the right Git behavior the default and the wrong behavior ha
 
 ## Non-Goals
 
-| Non-goal | Why |
-|---|---|
-| Protected PATH shim | Wrong abstraction for pi-native behavior |
-| `git getID` / shell exports | pi can keep session state internally |
-| `hgit` | Belongs to standalone wrapper design, not pi-native UX |
-| New VCS | Problem is safety around Git, not replacing Git |
-| Agent-wide cross-tool protection | Scope is pi only |
+| Non-goal                         | Why                                                    |
+| -------------------------------- | ------------------------------------------------------ |
+| Protected PATH shim              | Wrong abstraction for pi-native behavior               |
+| `git getID` / shell exports      | pi can keep session state internally                   |
+| `hgit`                           | Belongs to standalone wrapper design, not pi-native UX |
+| New VCS                          | Problem is safety around Git, not replacing Git        |
+| Agent-wide cross-tool protection | Scope is pi only                                       |
 
 ## User Experience
 
@@ -69,6 +70,7 @@ The goal is to make the right Git behavior the default and the wrong behavior ha
 ### Expected agent workflow
 
 The model uses native pi tools instead of raw mutable Git:
+
 - `git_status`
 - `git_diff`
 - `git_stage`
@@ -79,39 +81,47 @@ The model uses native pi tools instead of raw mutable Git:
 
 ## Layers
 
-| Layer | Responsibility |
-|---|---|
-| Interception extension | Block raw mutable Git in `bash` and `user_bash` |
-| Native Git tool extension | Expose safe Git mutation/read tools to the model |
-| Hidden state store | Track per-session index, staged paths, hashes, parent `HEAD` |
-| UI status | Show Git safety/session state in footer or widget |
+| Layer                     | Responsibility                                               |
+| ------------------------- | ------------------------------------------------------------ |
+| Interception extension    | Block raw mutable Git in `bash` and `user_bash`              |
+| Native Git tool extension | Expose safe Git mutation/read tools to the model             |
+| Hidden state store        | Track per-session index, staged paths, hashes, parent `HEAD` |
+| UI status                 | Show Git safety/session state in footer or widget            |
 
 ## Native Tools
 
 ### `git_status`
+
 Read-only wrapper around `git status`.
 
 **Input**
+
 - optional porcelain flag or path filter later if needed
 
 **Behavior**
+
 - uses real Git
 - no state mutation
 
 ### `git_diff`
+
 Read-only wrapper around `git diff`.
 
 **Input**
+
 - optional `paths: string[]`
 - optional mode: working vs staged later if needed
 
 ### `git_stage`
+
 Stage explicit file paths into the session's private index.
 
 **Input**
+
 - `paths: string[]`
 
 **Rules**
+
 - required explicit file paths only
 - reject `.`
 - reject directories
@@ -122,18 +132,22 @@ Stage explicit file paths into the session's private index.
 - capture parent `HEAD` if not already captured
 
 **Success result details**
+
 - repo root
 - normalized staged paths
 - parent `HEAD`
 - updated staged manifest
 
 ### `git_commit`
+
 Commit only what the current pi Git session staged.
 
 **Input**
+
 - `message: string`
 
 **Rules**
+
 - requires existing session state
 - requires staged paths
 - acquire repo lock
@@ -143,12 +157,14 @@ Commit only what the current pi Git session staged.
 - clear staged manifest after successful commit
 
 **Failure modes**
+
 - no active stage state
 - file drift
 - `HEAD` drift
 - lock unavailable
 
 ### Optional tools for v1.1+
+
 - `git_session_status`
 - `git_unstage`
 - `git_diff_staged`
@@ -158,45 +174,45 @@ Commit only what the current pi Git session staged.
 
 ### Pass through
 
-| Command | Notes |
-|---|---|
-| `git status` | pass |
-| `git diff` | pass |
-| `git log` | pass |
-| `git show` | pass |
-| `git ls-files` | pass |
-| `git branch` | pass for read-only forms only |
-| `git rev-parse` | pass if needed internally |
+| Command         | Notes                         |
+| --------------- | ----------------------------- |
+| `git status`    | pass                          |
+| `git diff`      | pass                          |
+| `git log`       | pass                          |
+| `git show`      | pass                          |
+| `git ls-files`  | pass                          |
+| `git branch`    | pass for read-only forms only |
+| `git rev-parse` | pass if needed internally     |
 
 ### Block
 
-| Command | Reason |
-|---|---|
-| `git add ...` | all mutation must go through native tools |
-| `git commit ...` | all mutation must go through native tools |
-| `git reset ...` | destructive/shared-tree mutation |
-| `git restore ...` | destructive/shared-tree mutation |
-| `git checkout ...` | shared-tree mutation |
-| `git switch ...` | shared-tree mutation |
-| `git merge` | history/shared-tree mutation |
-| `git rebase` | history/shared-tree mutation |
-| `git pull` | hidden history mutation |
-| `git stash` | shared-tree mutation |
-| `git push --force` | remote history rewrite |
+| Command            | Reason                                    |
+| ------------------ | ----------------------------------------- |
+| `git add ...`      | all mutation must go through native tools |
+| `git commit ...`   | all mutation must go through native tools |
+| `git reset ...`    | destructive/shared-tree mutation          |
+| `git restore ...`  | destructive/shared-tree mutation          |
+| `git checkout ...` | shared-tree mutation                      |
+| `git switch ...`   | shared-tree mutation                      |
+| `git merge`        | history/shared-tree mutation              |
+| `git rebase`       | history/shared-tree mutation              |
+| `git pull`         | hidden history mutation                   |
+| `git stash`        | shared-tree mutation                      |
+| `git push --force` | remote history rewrite                    |
 
 ## State Model
 
 Hidden per-pi-session Git state:
 
-| Field | Purpose |
-|---|---|
-| `repoRoot` | Canonical repo identity |
-| `indexPath` | Private `GIT_INDEX_FILE` |
-| `parentHead` | Expected commit parent for safe commit |
+| Field         | Purpose                                     |
+| ------------- | ------------------------------------------- |
+| `repoRoot`    | Canonical repo identity                     |
+| `indexPath`   | Private `GIT_INDEX_FILE`                    |
+| `parentHead`  | Expected commit parent for safe commit      |
 | `stagedPaths` | Explicit paths owned by this pi Git session |
-| `pathHashes` | Drift detection at commit time |
-| `createdAt` | Diagnostics |
-| `updatedAt` | Diagnostics |
+| `pathHashes`  | Drift detection at commit time              |
+| `createdAt`   | Diagnostics                                 |
+| `updatedAt`   | Diagnostics                                 |
 
 ## Storage
 
@@ -215,6 +231,7 @@ Suggested location:
 Do **not** expose shell env vars.
 
 Use pi runtime/session identity internally:
+
 - current pi session file or session id
 - cwd / repo root
 - extension-managed manifest
@@ -234,6 +251,7 @@ This prevents one pi session from polluting the shared `.git/index`.
 ### Repo lock
 
 Before commit:
+
 - acquire per-repo lock
 - auto-clear stale/orphan lock when safe
 - serialize commit/ref mutation
@@ -242,23 +260,23 @@ Before commit:
 
 At commit time verify:
 
-| Check | Result on failure |
-|---|---|
-| `HEAD` matches captured `parentHead` | block with head drift |
+| Check                                           | Result on failure     |
+| ----------------------------------------------- | --------------------- |
+| `HEAD` matches captured `parentHead`            | block with head drift |
 | each staged path still matches staged hash/blob | block with file drift |
-| staged path set still matches manifest | block |
+| staged path set still matches manifest          | block                 |
 
 ## Error Contract
 
 Errors should be short, actionable, agent-recoverable.
 
-| Field | Required |
-|---|---|
-| `error_code` | yes |
-| `detail` | yes |
-| `context` | yes |
-| `suggestions` | yes |
-| `retriable` | yes |
+| Field         | Required |
+| ------------- | -------- |
+| `error_code`  | yes      |
+| `detail`      | yes      |
+| `context`     | yes      |
+| `suggestions` | yes      |
+| `retriable`   | yes      |
 
 ### Example blocked raw shell mutation
 
@@ -311,6 +329,7 @@ git-guard: 2 staged • HEAD a1b2c3 • repo commit-queue
 ```
 
 Optional notifications:
+
 - session created lazily on first `git_stage`
 - commit blocked due to drift
 - commit succeeded and session cleared
@@ -331,20 +350,21 @@ Optional notifications:
 
 ## Module Responsibilities
 
-| File | Responsibility |
-|---|---|
-| `index.ts` | register events, tools, status UI |
-| `command-policy.ts` | classify raw Git shell commands as pass/block |
-| `git-runtime.ts` | resolve repo root, invoke real Git safely, hash files |
-| `session-store.ts` | load/save hidden Git session manifests |
-| `repo-lock.ts` | per-repo commit lock |
-| `tools.ts` | `git_status`, `git_diff`, `git_stage`, `git_commit` |
-| `errors.ts` | structured agent-facing errors |
-| `ui.ts` | footer/widget helpers |
+| File                | Responsibility                                        |
+| ------------------- | ----------------------------------------------------- |
+| `index.ts`          | register events, tools, status UI                     |
+| `command-policy.ts` | classify raw Git shell commands as pass/block         |
+| `git-runtime.ts`    | resolve repo root, invoke real Git safely, hash files |
+| `session-store.ts`  | load/save hidden Git session manifests                |
+| `repo-lock.ts`      | per-repo commit lock                                  |
+| `tools.ts`          | `git_status`, `git_diff`, `git_stage`, `git_commit`   |
+| `errors.ts`         | structured agent-facing errors                        |
+| `ui.ts`             | footer/widget helpers                                 |
 
 ## Implementation Order
 
 ### v1
+
 1. Block raw mutable Git in `bash` and `user_bash`
 2. Add `git_status`, `git_diff`, `git_stage`, `git_commit`
 3. Add hidden private index management
@@ -352,26 +372,28 @@ Optional notifications:
 5. Add minimal status widget
 
 ### v1.1
+
 1. `git_session_status`
 2. `git_unstage`
 3. better diagnostics/logging
 
 ## Acceptance Criteria
 
-| Scenario | Expected Result |
-|---|---|
-| model runs raw `git add .` in `bash` | blocked |
-| user runs `!git commit -m ...` | blocked |
-| user/model runs `git status` | allowed |
-| `git_stage(["src/a.ts"])` | staged into private index |
-| `git_commit("fix: a")` after valid stage | creates commit |
-| file changes after stage | commit blocked with drift error |
-| `HEAD` changes after stage | commit blocked with head drift error |
-| second pi session stages different file | no shared-index pollution |
+| Scenario                                 | Expected Result                      |
+| ---------------------------------------- | ------------------------------------ |
+| model runs raw `git add .` in `bash`     | blocked                              |
+| user runs `!git commit -m ...`           | blocked                              |
+| user/model runs `git status`             | allowed                              |
+| `git_stage(["src/a.ts"])`                | staged into private index            |
+| `git_commit("fix: a")` after valid stage | creates commit                       |
+| file changes after stage                 | commit blocked with drift error      |
+| `HEAD` changes after stage               | commit blocked with head drift error |
+| second pi session stages different file  | no shared-index pollution            |
 
 ## Design Principle
 
 The interface should be **pi-native and boring**:
+
 - raw shell Git for reading
 - native pi tools for mutation
 - hidden safety machinery underneath

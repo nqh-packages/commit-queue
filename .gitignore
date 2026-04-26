@@ -3,5 +3,5 @@ node_modules/
 dist/
 coverage/
 .commit-queue/
+.qlty/out/
 *.log
-

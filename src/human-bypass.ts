@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { ensureStateDirs, statePaths } from "./session-store.js";
@@ -14,7 +20,9 @@ export type HumanNoVerifyBypass = {
   sanitizedArgs: string[];
 };
 
-export function detectHumanNoVerifyBypass(args: string[]): HumanNoVerifyBypass | null {
+export function detectHumanNoVerifyBypass(
+  args: string[],
+): HumanNoVerifyBypass | null {
   const config = readHumanBypassConfig();
   const expectedHash = config?.humanNoVerifyPhraseHash;
   if (!expectedHash) return null;
@@ -22,7 +30,6 @@ export function detectHumanNoVerifyBypass(args: string[]): HumanNoVerifyBypass |
   const sanitizedArgs = [...args];
 
   for (let index = 0; index < sanitizedArgs.length; index += 1) {
-    const arg = sanitizedArgs[index] || "";
     const message = messageSourceAt(sanitizedArgs, index);
     if (!message) continue;
 
@@ -34,7 +41,8 @@ export function detectHumanNoVerifyBypass(args: string[]): HumanNoVerifyBypass |
     } else if (message.kind === "message") {
       sanitizedArgs[index + 1] = stripped.value;
     } else if (message.kind === "joined-file") {
-      sanitizedArgs[index] = `${message.prefix}${writeSanitizedMessageFile(stripped.value)}`;
+      sanitizedArgs[index] =
+        `${message.prefix}${writeSanitizedMessageFile(stripped.value)}`;
     } else {
       sanitizedArgs[index + 1] = writeSanitizedMessageFile(stripped.value);
     }
@@ -75,17 +83,18 @@ type MessageSource =
   | { kind: "file"; content: string }
   | { kind: "joined-file"; content: string; prefix: string };
 
-function messageSourceAt(
-  args: string[],
-  index: number,
-): MessageSource | null {
+function messageSourceAt(args: string[], index: number): MessageSource | null {
   const arg = args[index] || "";
   if ((arg === "-m" || arg === "--message") && index + 1 < args.length) {
     return { kind: "message", content: args[index + 1] || "" };
   }
 
   if (arg.startsWith("--message=")) {
-    return { kind: "joined-message", content: arg.slice("--message=".length), prefix: "--message=" };
+    return {
+      kind: "joined-message",
+      content: arg.slice("--message=".length),
+      prefix: "--message=",
+    };
   }
 
   if ((arg === "-F" || arg === "--file") && index + 1 < args.length) {
@@ -99,7 +108,10 @@ function messageSourceAt(
   return null;
 }
 
-function messageFileSource(filePath: string, kind: "file" | "joined-file"): MessageSource | null {
+function messageFileSource(
+  filePath: string,
+  kind: "file" | "joined-file",
+): MessageSource | null {
   if (!filePath || filePath === "-") return null;
 
   try {
@@ -120,9 +132,14 @@ function writeSanitizedMessageFile(message: string): string {
   return filePath;
 }
 
-function stripMatchingSecretLine(message: string, expectedHash: string): { matched: boolean; value: string } {
+function stripMatchingSecretLine(
+  message: string,
+  expectedHash: string,
+): { matched: boolean; value: string } {
   const lines = message.split(/\r?\n/);
-  const remaining = lines.filter((line) => sha256(line.trim()) !== expectedHash);
+  const remaining = lines.filter(
+    (line) => sha256(line.trim()) !== expectedHash,
+  );
   return {
     matched: remaining.length !== lines.length,
     value: remaining.join("\n"),

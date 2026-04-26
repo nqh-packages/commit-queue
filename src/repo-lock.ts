@@ -2,7 +2,11 @@ import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import * as path from "node:path";
 import { errorPayload, fail } from "./errors.js";
-import { ensureStateDirs, statePaths, writeJsonAtomic } from "./session-store.js";
+import {
+  ensureStateDirs,
+  statePaths,
+  writeJsonAtomic,
+} from "./session-store.js";
 import { hash } from "./text.js";
 import type { LockInfo, LockOwner } from "./types.js";
 
@@ -26,14 +30,21 @@ export function withRepoLock(repo: string, fn: () => void): void {
       if (currentLock.recovered) continue;
 
       if (Date.now() - started > lockTimeoutMs()) {
-        fail(errorPayload({
-          code: "COMMIT_QUEUE_REPO_LOCK_TIMEOUT",
-          title: "Repository lock timeout",
-          detail: "Could not acquire the commit lock for this repository.",
-          context: { repo, lock: lockPath, lock_owner: currentLock.owner, lock_age_ms: currentLock.ageMs },
-          suggestions: lockTimeoutSuggestions(currentLock),
-          retriable: true,
-        }));
+        fail(
+          errorPayload({
+            code: "COMMIT_QUEUE_REPO_LOCK_TIMEOUT",
+            title: "Repository lock timeout",
+            detail: "Could not acquire the commit lock for this repository.",
+            context: {
+              repo,
+              lock: lockPath,
+              lock_owner: currentLock.owner,
+              lock_age_ms: currentLock.ageMs,
+            },
+            suggestions: lockTimeoutSuggestions(currentLock),
+            retriable: true,
+          }),
+        );
       }
       sleep(50);
       continue;
@@ -113,7 +124,9 @@ function readLockInfo(lockPath: string): LockInfo {
 
 function readLockOwner(lockPath: string): LockOwner | null {
   try {
-    return JSON.parse(readFileSync(path.join(lockPath, "owner.json"), "utf8")) as LockOwner;
+    return JSON.parse(
+      readFileSync(path.join(lockPath, "owner.json"), "utf8"),
+    ) as LockOwner;
   } catch {
     return null;
   }
@@ -141,13 +154,21 @@ function lockTimeoutSuggestions(lockInfo: LockInfo): string[] {
 }
 
 function lockTimeoutMs(): number {
-  return Number.parseInt(process.env.COMMIT_QUEUE_LOCK_TIMEOUT_MS || "", 10) || LOCK_TIMEOUT_MS;
+  return (
+    Number.parseInt(process.env.COMMIT_QUEUE_LOCK_TIMEOUT_MS || "", 10) ||
+    LOCK_TIMEOUT_MS
+  );
 }
 
 function sleep(ms: number): void {
   const until = Date.now() + ms;
   while (Date.now() < until) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(1, until - Date.now()));
+    Atomics.wait(
+      new Int32Array(new SharedArrayBuffer(4)),
+      0,
+      0,
+      Math.max(1, until - Date.now()),
+    );
   }
 }
 

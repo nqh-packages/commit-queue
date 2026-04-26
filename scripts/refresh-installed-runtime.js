@@ -7,10 +7,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -29,22 +27,28 @@ const markerPath = failedInstallRefreshPath(repo);
 try {
   refreshFromHead();
   clearFailedMarker();
-  process.stdout.write(`[commit-queue] installed runtime refreshed from ${head.slice(0, 12)} (${hookName})\n`);
+  process.stdout.write(
+    `[commit-queue] installed runtime refreshed from ${head.slice(0, 12)} (${hookName})\n`,
+  );
 } catch (error) {
   recordFailedMarker(error);
-  process.stderr.write([
-    `[commit-queue] installed runtime refresh failed (${hookName})`,
-    error instanceof Error ? error.message : String(error),
-    `stale marker: ${markerPath}`,
-    "",
-  ].join("\n"));
+  process.stderr.write(
+    [
+      `[commit-queue] installed runtime refresh failed (${hookName})`,
+      error instanceof Error ? error.message : String(error),
+      `stale marker: ${markerPath}`,
+      "",
+    ].join("\n"),
+  );
   process.exit(1);
 }
 
 function refreshFromHead() {
   const sourceRoot = mkdtempSync(path.join(tmpdir(), "commit-queue-refresh-"));
   try {
-    const archive = git(["archive", "--format=tar", "HEAD"], { encoding: "buffer" });
+    const archive = git(["archive", "--format=tar", "HEAD"], {
+      encoding: "buffer",
+    });
     const unpack = spawnSync("tar", ["-x", "-C", sourceRoot], {
       input: archive.stdout,
       encoding: "utf8",
@@ -86,11 +90,22 @@ function installBuiltRuntime(sourceRoot) {
   const distDir = path.join(installRoot, "dist");
   mkdirSync(binDir, { recursive: true });
   mkdirSync(distDir, { recursive: true });
-  installFile(path.join(sourceRoot, "bin/git"), path.join(binDir, "git"), 0o755);
-  installFile(path.join(sourceRoot, "bin/hgit"), path.join(binDir, "hgit"), 0o755);
+  installFile(
+    path.join(sourceRoot, "bin/git"),
+    path.join(binDir, "git"),
+    0o755,
+  );
+  installFile(
+    path.join(sourceRoot, "bin/hgit"),
+    path.join(binDir, "hgit"),
+    0o755,
+  );
   installDirectory(path.join(sourceRoot, "dist"), distDir);
   rmSync(path.join(installRoot, "src"), { recursive: true, force: true });
-  writeFileSync(path.join(installRoot, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`);
+  writeFileSync(
+    path.join(installRoot, "package.json"),
+    `${JSON.stringify({ type: "module" }, null, 2)}\n`,
+  );
 }
 
 function installFile(source, target, mode) {
@@ -118,13 +133,20 @@ function clearFailedMarker() {
 
 function recordFailedMarker(error) {
   mkdirSync(path.dirname(markerPath), { recursive: true });
-  writeFileSync(markerPath, `${JSON.stringify({
-    repo,
-    head,
-    hook: hookName,
-    failedAt: new Date().toISOString(),
-    reason: error instanceof Error ? error.message : String(error),
-  }, null, 2)}\n`);
+  writeFileSync(
+    markerPath,
+    `${JSON.stringify(
+      {
+        repo,
+        head,
+        hook: hookName,
+        failedAt: new Date().toISOString(),
+        reason: error instanceof Error ? error.message : String(error),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 function resolveRepo() {
@@ -144,19 +166,30 @@ function git(args, options = {}) {
 function assertSuccess(result, action) {
   if (result.status === 0) return;
 
-  throw new Error([
-    `${action} failed`,
-    result.stdout ? `stdout:\n${result.stdout}` : "",
-    result.stderr ? `stderr:\n${result.stderr}` : "",
-  ].filter(Boolean).join("\n"));
+  throw new Error(
+    [
+      `${action} failed`,
+      result.stdout ? `stdout:\n${result.stdout}` : "",
+      result.stderr ? `stderr:\n${result.stderr}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
 }
 
 function failedInstallRefreshPath(repoPath) {
-  return path.join(stateRoot(), "stale-installs", `${hash(path.resolve(repoPath))}.json`);
+  return path.join(
+    stateRoot(),
+    "stale-installs",
+    `${hash(path.resolve(repoPath))}.json`,
+  );
 }
 
 function stateRoot() {
-  return process.env.COMMIT_QUEUE_STATE_DIR || path.join(installHome, ".commit-queue");
+  return (
+    process.env.COMMIT_QUEUE_STATE_DIR ||
+    path.join(installHome, ".commit-queue")
+  );
 }
 
 function hash(value) {

@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import type { CommitQueueSession } from "./types.js";
@@ -13,7 +19,8 @@ export type StatePaths = {
 };
 
 export function statePaths(): StatePaths {
-  const root = process.env.COMMIT_QUEUE_STATE_DIR || path.join(homedir(), ".commit-queue");
+  const root =
+    process.env.COMMIT_QUEUE_STATE_DIR || path.join(homedir(), ".commit-queue");
   return {
     root,
     sessions: path.join(root, "sessions"),
@@ -29,7 +36,14 @@ export function sessionIndexPath(id: string): string {
 }
 
 export function ensureStateDirs(state = statePaths()): void {
-  for (const dir of [state.root, state.sessions, state.indexes, state.locks, state.logs, state.staleInstalls]) {
+  for (const dir of [
+    state.root,
+    state.sessions,
+    state.indexes,
+    state.locks,
+    state.logs,
+    state.staleInstalls,
+  ]) {
     mkdirSync(dir, { recursive: true });
   }
 }
@@ -42,7 +56,10 @@ export function loadSession(id: string): CommitQueueSession | null {
 
 export function saveSession(session: CommitQueueSession): void {
   ensureStateDirs();
-  writeJsonAtomic(path.join(statePaths().sessions, `${session.id}.json`), session);
+  writeJsonAtomic(
+    path.join(statePaths().sessions, `${session.id}.json`),
+    session,
+  );
 }
 
 export function writeJsonAtomic(target: string, value: unknown): void {

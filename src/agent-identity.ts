@@ -8,29 +8,40 @@ import type { AgentIdentity, CommitQueueSession } from "./types.js";
 
 const MAX_AGENT_SESSION_LENGTH = 256;
 
-export function detectAgentIdentity(command: string, repo: string): AgentIdentity {
+export function detectAgentIdentity(
+  command: string,
+  repo: string,
+): AgentIdentity {
   const detection = detectAgentIdentityFromEnv();
   if (detection.status === "detected") {
     return validateAgentIdentity(command, repo, detection.agent);
   }
 
   if (detection.status === "blocked") {
-    fail(agentIdentityRequiredError(command, repo, {
-      adapter: detection.adapter,
-      reason: detection.reason,
-      ...detection.context,
-    }));
+    fail(
+      agentIdentityRequiredError(command, repo, {
+        adapter: detection.adapter,
+        reason: detection.reason,
+        ...detection.context,
+      }),
+    );
   }
 
   fail(agentIdentityRequiredError(command, repo, {}));
 }
 
-export function requireAgentIdentity(command: string, repo: string, session: CommitQueueSession): AgentIdentity {
+export function requireAgentIdentity(
+  command: string,
+  repo: string,
+  session: CommitQueueSession,
+): AgentIdentity {
   if (!session.agent) {
-    fail(agentIdentityRequiredError(command, repo, {
-      session: session.id,
-      reason: "session_missing_agent_metadata",
-    }));
+    fail(
+      agentIdentityRequiredError(command, repo, {
+        session: session.id,
+        reason: "session_missing_agent_metadata",
+      }),
+    );
   }
 
   return validateAgentIdentity(command, repo, session.agent, session.id);
@@ -47,19 +58,25 @@ function validateAgentIdentity(
   const detectedFrom = normalizeDetectedFrom(agent.detectedFrom);
 
   if (!name || !sessionId || !detectedFrom) {
-    fail(agentIdentityRequiredError(command, repo, {
-      session,
-      reason: "invalid_agent_identity",
-      agent_name_valid: Boolean(name),
-      agent_session_valid: Boolean(sessionId),
-      detected_from_valid: Boolean(detectedFrom),
-    }));
+    fail(
+      agentIdentityRequiredError(command, repo, {
+        session,
+        reason: "invalid_agent_identity",
+        agent_name_valid: Boolean(name),
+        agent_session_valid: Boolean(sessionId),
+        detected_from_valid: Boolean(detectedFrom),
+      }),
+    );
   }
 
   return { name, sessionId, detectedFrom };
 }
 
-function agentIdentityRequiredError(command: string, repo: string, context: Record<string, unknown>) {
+function agentIdentityRequiredError(
+  command: string,
+  repo: string,
+  context: Record<string, unknown>,
+) {
   return errorPayload({
     code: "COMMIT_QUEUE_AGENT_ID_REQUIRED",
     title: "Coding agent identity required",
@@ -102,7 +119,9 @@ function agentIdentityRequiredDetail(context: Record<string, unknown>): string {
   return "Protected commit-queue sessions require a coding agent identity so commits can be traced back to the agent session that produced them.";
 }
 
-function agentIdentityRequiredSuggestions(context: Record<string, unknown>): string[] {
+function agentIdentityRequiredSuggestions(
+  context: Record<string, unknown>,
+): string[] {
   if (context.reason === "explicit_agent_identity_incomplete") {
     return [
       ...agentIdentityRecoveryExamples().map(formatAgentIdentityExample),
@@ -120,26 +139,30 @@ function agentIdentityRecoveryExamples(): Array<Record<string, string>> {
   return [
     {
       label: "unsupported agent",
-      description: "Set both explicit identity variables before starting a commit-queue session.",
-      command: "export COMMIT_QUEUE_AGENT=\"claude-code\"; export COMMIT_QUEUE_AGENT_SESSION=\"claude-code-abc123\"; eval \"$(git getID)\"",
+      description:
+        "Set both explicit identity variables before starting a commit-queue session.",
+      command:
+        'export COMMIT_QUEUE_AGENT="claude-code"; export COMMIT_QUEUE_AGENT_SESSION="claude-code-abc123"; eval "$(git getID)"',
     },
     {
       label: "Codex",
       description: "Run from Codex so CODEX_THREAD_ID is present.",
-      command: "eval \"$(git getID)\"",
+      command: 'eval "$(git getID)"',
       detected_env: "CODEX_THREAD_ID",
     },
     {
       label: "OpenCode",
       description: "Run from OpenCode so OPENCODE_SESSION_ID is present.",
-      command: "eval \"$(git getID)\"",
+      command: 'eval "$(git getID)"',
       detected_env: "OPENCODE_SESSION_ID",
     },
   ];
 }
 
 function formatAgentIdentityExample(example: Record<string, string>): string {
-  const detectedEnv = example.detected_env ? ` Detected env: ${example.detected_env}.` : "";
+  const detectedEnv = example.detected_env
+    ? ` Detected env: ${example.detected_env}.`
+    : "";
   return `Example ${example.label}: ${example.description}${detectedEnv} Run: \`${example.command}\`.`;
 }
 
@@ -152,7 +175,12 @@ function normalizeAgentName(value: string): string | null {
 function normalizeAgentSession(value: string): string | null {
   const normalized = value.trim();
   if (!normalized || normalized.length > MAX_AGENT_SESSION_LENGTH) return null;
-  if (/[\r\n\0]/.test(normalized)) return null;
+  if (
+    normalized.includes("\r") ||
+    normalized.includes("\n") ||
+    normalized.includes(String.fromCharCode(0))
+  )
+    return null;
   return normalized;
 }
 

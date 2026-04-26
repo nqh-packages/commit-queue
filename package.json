@@ -17,6 +17,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "qlty": "scripts/run-qlty.sh check --all --no-progress --summary",
+    "qlty:smells": "scripts/run-qlty.sh smells --all",
+    "quality": "npm run typecheck && npm run qlty && npm run qlty:smells && npm test",
     "prepare": "npm run build",
     "install:local": "node scripts/install-local.js",
     "pretest": "npm run build",

@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 const gitShim = path.join(repoRoot, "bin/git");
 const hgitShim = path.join(repoRoot, "bin/hgit");
 
@@ -117,18 +126,20 @@ function runCommand(command, args, options = {}) {
     cwd: options.cwd,
     env: {
       ...process.env,
-      ...(options.env || {}),
+      ...options.env,
     },
     encoding: "utf8",
   });
 
   if (!options.allowFailure && result.status !== 0) {
-    assert.fail([
-      `Command failed: ${command} ${args.join(" ")}`,
-      `status: ${result.status}`,
-      `stdout: ${result.stdout}`,
-      `stderr: ${result.stderr}`,
-    ].join("\n"));
+    assert.fail(
+      [
+        `Command failed: ${command} ${args.join(" ")}`,
+        `status: ${result.status}`,
+        `stdout: ${result.stdout}`,
+        `stderr: ${result.stderr}`,
+      ].join("\n"),
+    );
   }
 
   return result;

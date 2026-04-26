@@ -19,21 +19,30 @@ export function fail(payload: ErrorPayload): never {
   if (process.env.COMMIT_QUEUE_JSON === "1") {
     process.stderr.write(`${JSON.stringify(payload)}\n`);
   } else {
-    process.stderr.write([
-      `[commit-queue] blocked: ${payload.detail}`,
-      "",
-      `error_code: ${payload.error_code}`,
-      `retriable: ${String(payload.retriable)}`,
-      "context:",
-      ...formatContext(payload.context),
-      ...payload.suggestions.map((suggestion) => `suggestion: ${suggestion}`),
-      "",
-    ].join("\n"));
+    process.stderr.write(
+      [
+        `[commit-queue] blocked: ${payload.detail}`,
+        "",
+        `error_code: ${payload.error_code}`,
+        `retriable: ${String(payload.retriable)}`,
+        "context:",
+        ...formatContext(payload.context),
+        ...payload.suggestions.map((suggestion) => `suggestion: ${suggestion}`),
+        "",
+      ].join("\n"),
+    );
   }
   process.exit(payload.status >= 500 ? 1 : 2);
 }
 
-export function errorPayload({ code, title, detail, context, suggestions, retriable }: ErrorInput): ErrorPayload {
+export function errorPayload({
+  code,
+  title,
+  detail,
+  context,
+  suggestions,
+  retriable,
+}: ErrorInput): ErrorPayload {
   return {
     type: `https://commit-queue.local/errors/${code.toLowerCase().replaceAll("_", "-")}`,
     title,
@@ -48,5 +57,7 @@ export function errorPayload({ code, title, detail, context, suggestions, retria
 }
 
 function formatContext(context: Record<string, unknown>): string[] {
-  return JSON.stringify(context, null, 2).split("\n").map((line) => `  ${line}`);
+  return JSON.stringify(context, null, 2)
+    .split("\n")
+    .map((line) => `  ${line}`);
 }
