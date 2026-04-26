@@ -168,6 +168,7 @@ Agent detection is intentionally adapter-based:
 | `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
 | `codex`    | `CODEX_THREAD_ID`                                  |
 | `opencode` | `OPENCODE_SESSION_ID`                              |
+| `pi`       | `PI_SESSION_ID`, `PI_CODING_AGENT_SESSION`         |
 
 The core contract is still platform-agnostic. New platforms add a small adapter; unsupported platforms use the explicit env adapter.
 The explicit adapter requires both values because the agent name identifies the coding platform and the session id identifies the platform run.

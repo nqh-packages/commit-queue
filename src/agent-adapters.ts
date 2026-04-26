@@ -6,6 +6,9 @@ const EXPLICIT_AGENT_ENV_PAIR = [
   EXPLICIT_AGENT_ENV,
   EXPLICIT_AGENT_SESSION_ENV,
 ] as const;
+const PI_AGENT_ENV = "PI_CODING_AGENT";
+const PI_SESSION_ENV = "PI_SESSION_ID";
+const PI_CODING_AGENT_SESSION_ENV = "PI_CODING_AGENT_SESSION";
 
 export type AgentIdentityAdapterDetection =
   | {
@@ -74,10 +77,48 @@ const opencodeAgentAdapter: AgentIdentityAdapter = {
   detect: detectEnvBackedAgent("opencode", "OPENCODE_SESSION_ID"),
 };
 
+const piAgentAdapter: AgentIdentityAdapter = {
+  name: "pi",
+  env: [PI_SESSION_ENV, PI_CODING_AGENT_SESSION_ENV, PI_AGENT_ENV],
+  detect: (env) => {
+    const nativeSessionId = optionalEnv(env, PI_SESSION_ENV);
+    const fallbackSessionId = optionalEnv(env, PI_CODING_AGENT_SESSION_ENV);
+    const sessionId = nativeSessionId ?? fallbackSessionId;
+    const isPi = optionalEnv(env, PI_AGENT_ENV);
+
+    if (sessionId) {
+      return {
+        status: "detected",
+        adapter: "pi",
+        agent: {
+          name: "pi",
+          sessionId: `pi-${sessionId}`,
+          detectedFrom: nativeSessionId
+            ? PI_SESSION_ENV
+            : PI_CODING_AGENT_SESSION_ENV,
+        },
+      };
+    }
+
+    if (!isPi) return { status: "not_detected" };
+
+    return {
+      status: "blocked",
+      adapter: "pi",
+      reason: "pi_session_id_missing",
+      context: {
+        required_env: [PI_SESSION_ENV],
+        received_env: [PI_AGENT_ENV],
+      },
+    };
+  },
+};
+
 export const agentIdentityAdapters: readonly AgentIdentityAdapter[] = [
   explicitAgentAdapter,
   codexAgentAdapter,
   opencodeAgentAdapter,
+  piAgentAdapter,
 ];
 
 export function detectAgentIdentityFromEnv(

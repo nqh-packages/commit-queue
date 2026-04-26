@@ -34,6 +34,7 @@ Built-in identity adapters:
 | `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
 | `codex`    | `CODEX_THREAD_ID`                                  |
 | `opencode` | `OPENCODE_SESSION_ID`                              |
+| `pi`       | `PI_SESSION_ID`, `PI_CODING_AGENT_SESSION`         |
 
 Human flow, from an interactive terminal:
 

@@ -25,6 +25,9 @@ import {
   writeRepoFile,
 } from "./helpers/git-fixture.js";
 
+const PI_TEST_SESSION_ID = "019dcbcc-b152-70a0-b167-aeaaaf7a9b32";
+const PI_COMMIT_QUEUE_SESSION_ID = `pi-${PI_TEST_SESSION_ID}`;
+
 test("read-only commands pass through without a session", () => {
   const fixture = createFixture();
   try {
@@ -123,6 +126,62 @@ test("git getID creates a shell-activatable session", () => {
   }
 });
 
+test("git getID creates a pi-attributed session from platform env", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["getID"], {
+      state: fixture.state,
+      env: {
+        PI_CODING_AGENT: "true",
+        PI_SESSION_ID: PI_TEST_SESSION_ID,
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /export COMMIT_QUEUE_AGENT="pi"/);
+    assert.match(
+      result.stdout,
+      new RegExp(
+        `export COMMIT_QUEUE_AGENT_SESSION="${PI_COMMIT_QUEUE_SESSION_ID}"`,
+      ),
+    );
+
+    const id = result.stdout.match(/export COMMIT_QUEUE_ID="([^"]+)"/)?.[1];
+    assert.match(id, /^cq_/);
+
+    const sessionPath = path.join(fixture.state, "sessions", `${id}.json`);
+    const session = JSON.parse(readFileSync(sessionPath, "utf8"));
+    assert.deepEqual(session.agent, {
+      name: "pi",
+      sessionId: PI_COMMIT_QUEUE_SESSION_ID,
+      detectedFrom: "PI_SESSION_ID",
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("git getID blocks pi shells without a platform session id", () => {
+  const fixture = createFixture();
+  try {
+    const result = runCommitQueue(fixture.repo, ["getID"], {
+      state: fixture.state,
+      env: {
+        PI_CODING_AGENT: "true",
+        PI_SESSION_ID: "",
+        PI_CODING_AGENT_SESSION: "",
+      },
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
+    assert.match(result.stderr, /pi_session_id_missing/);
+    assert.match(result.stderr, /PI_SESSION_ID/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("git getID requires a coding agent identity", () => {
   const fixture = createFixture();
   try {
@@ -145,6 +204,7 @@ test("git getID requires a coding agent identity", () => {
     assert.match(result.stderr, /"supported_agents": \[/);
     assert.match(result.stderr, /"codex"/);
     assert.match(result.stderr, /"opencode"/);
+    assert.match(result.stderr, /"pi"/);
     assert.doesNotMatch(result.stderr, /hgit/);
   } finally {
     fixture.cleanup();
@@ -179,6 +239,8 @@ test("git getID explains why explicit agent session alone is not enough", () => 
     assert.match(result.stderr, /CODEX_THREAD_ID/);
     assert.match(result.stderr, /Example OpenCode/);
     assert.match(result.stderr, /OPENCODE_SESSION_ID/);
+    assert.match(result.stderr, /Example Pi/);
+    assert.match(result.stderr, /PI_SESSION_ID/);
     assert.doesNotMatch(result.stderr, /hgit/);
   } finally {
     fixture.cleanup();
@@ -206,7 +268,7 @@ test("JSON agent identity errors include recovery examples", () => {
     assert.deepEqual(error.context.missing_env, ["COMMIT_QUEUE_AGENT"]);
     assert.deepEqual(
       error.context.examples.map((example) => example.label),
-      ["unsupported agent", "Codex", "OpenCode"],
+      ["unsupported agent", "Codex", "OpenCode", "Pi"],
     );
     assert.match(error.suggestions.join("\n"), /Example unsupported agent/);
   } finally {

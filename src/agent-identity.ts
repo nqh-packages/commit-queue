@@ -156,6 +156,12 @@ function agentIdentityRecoveryExamples(): Array<Record<string, string>> {
       command: 'eval "$(git getID)"',
       detected_env: "OPENCODE_SESSION_ID",
     },
+    {
+      label: "Pi",
+      description: "Run from Pi so PI_SESSION_ID is present.",
+      command: 'eval "$(git getID)"',
+      detected_env: "PI_SESSION_ID",
+    },
   ];
 }
 
