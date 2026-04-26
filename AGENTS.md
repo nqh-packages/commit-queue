@@ -12,6 +12,17 @@ Build `commit-queue`: a small local Git safety shim for AI-agent-heavy developme
 | 4        | Make errors actionable for AI agents                            |
 | 5        | Keep human escape interactive and out of agent-facing output    |
 
+## Agent-First Tool Law
+
+| Concern          | Required pattern                                                                                                                                                                                     | Forbidden pattern                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Diagnostic shape | Every agent-facing failure uses structured fields: `error_code`, `detail`, `context`, `suggestions`, `retriable`, and stable command classification.                                                 | Plaintext errors, hidden recovery steps, or messages that require reading source to recover.   |
+| Audit trail      | Mutating Git flows write local audit events with actor, session, command, repo, target paths, outcome, and reason. Human bypass use must remain locally audited and absent from agent-facing output. | Silent protected mutations, success-only logs, or leaking human bypass instructions to agents. |
+| Code ownership   | Command policy, session identity, runtime refresh, hook policy, and error formatting each stay in one owner module.                                                                                  | Repeated command lists, duplicated error codes, or policy embedded in tests only.              |
+| Constants/config | Tests and runtime code use shared command fixtures, env names, trailer names, paths, and error-code constants.                                                                                       | Hardcoded repeated commands, env vars, trailers, or test repo layouts outside fixtures.        |
+| i18n             | Human-facing CLI copy must be separable from agent diagnostics so future localization does not alter machine-readable fields.                                                                        | Mixing localized prose into `error_code`, command policy, or parser-visible fields.            |
+| Accessibility    | Terminal output must not rely on color alone; machine-readable JSON remains available for agents and assistive tooling.                                                                              | Color-only status, spinner-only progress, or unstructured terminal state.                      |
+
 ## Product Contract
 
 Read [VISION.md](./VISION.md) before changing behavior.
