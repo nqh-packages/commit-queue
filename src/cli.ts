@@ -1,3 +1,4 @@
+import type { Invocation } from "./types.js";
 import {
   firstUnsafeConfigMutation,
   hasGlobalConfigOverride,
@@ -59,74 +60,17 @@ export function runProtectedGit(args: string[]): void {
   }
 
   if (command === "commit") {
-    const bypass = detectHumanNoVerifyBypass(invocation.commandArgs);
-    if (bypass) {
-      const commit = runGit(realGit, [
-        ...invocation.globalArgs,
-        "commit",
-        ...bypass.sanitizedArgs,
-      ]);
-      if (commit.status === 0) writeHumanNoVerifyBypassEvent(repo);
-      exitWithResult(commit);
-    }
+    tryHumanBypassCommit(realGit, repo, invocation);
   }
 
-  if (command === "commit" && hasGlobalConfigOverride(invocation.globalArgs)) {
-    fail(
-      errorPayload({
-        code: "COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE",
-        title: "Unsafe Git config override blocked",
-        detail:
-          "Inline Git config overrides are blocked for protected commits.",
-        context: { command, global_args: invocation.globalArgs, repo },
-        suggestions: [
-          "Run `git commit` without inline `-c` or `--config-env` overrides.",
-        ],
-        retriable: true,
-      }),
-    );
-  }
+  blockUnsafeCommitGlobals(command, repo, invocation.globalArgs);
 
   if (command === "config") {
-    const unsafeConfig = firstUnsafeConfigMutation(invocation.commandArgs);
-    if (unsafeConfig && !isConfigReadOnly(invocation.commandArgs)) {
-      fail(
-        errorPayload({
-          code: "COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED",
-          title: "Hook config mutation blocked",
-          detail:
-            "Git hook configuration controls repository gates and cannot be changed by protected git.",
-          context: {
-            command,
-            args: invocation.commandArgs,
-            repo,
-            unsafe_config: unsafeConfig,
-          },
-          suggestions: [
-            "Leave repository hooks enabled and retry the original command.",
-            "If hook configuration must change, stop and ask the human.",
-          ],
-          retriable: false,
-        }),
-      );
-    }
+    blockUnsafeConfigMutation(repo, invocation.commandArgs);
   }
 
   if (command === "history") {
-    fail(
-      errorPayload({
-        code: "COMMIT_QUEUE_HISTORY_REWRITE_BLOCKED",
-        title: "History rewrite blocked",
-        detail:
-          "`git history` rewrites commit history and does not currently run hooks.",
-        context: { command, args: invocation.commandArgs, repo },
-        suggestions: [
-          "Create a follow-up commit instead of rewriting history.",
-          "If history must be rewritten, stop and ask the human.",
-        ],
-        retriable: false,
-      }),
-    );
+    blockHistoryRewrite(repo, invocation.commandArgs);
   }
 
   if (command === "add") {
@@ -146,6 +90,86 @@ export function runProtectedGit(args: string[]): void {
     exitWithResult(runGit(realGit, args, { env }));
   }
   exitWithResult(runGit(realGit, args));
+}
+
+function tryHumanBypassCommit(
+  realGit: string,
+  repo: string,
+  invocation: Invocation,
+): void {
+  const bypass = detectHumanNoVerifyBypass(invocation.commandArgs);
+  if (!bypass) return;
+
+  const commit = runGit(realGit, [
+    ...invocation.globalArgs,
+    "commit",
+    ...bypass.sanitizedArgs,
+  ]);
+  if (commit.status === 0) writeHumanNoVerifyBypassEvent(repo);
+  exitWithResult(commit);
+}
+
+function blockUnsafeCommitGlobals(
+  command: string,
+  repo: string,
+  globalArgs: string[],
+): void {
+  if (command !== "commit" || !hasGlobalConfigOverride(globalArgs)) return;
+
+  fail(
+    errorPayload({
+      code: "COMMIT_QUEUE_UNSAFE_CONFIG_OVERRIDE",
+      title: "Unsafe Git config override blocked",
+      detail: "Inline Git config overrides are blocked for protected commits.",
+      context: { command, global_args: globalArgs, repo },
+      suggestions: [
+        "Run `git commit` without inline `-c` or `--config-env` overrides.",
+      ],
+      retriable: true,
+    }),
+  );
+}
+
+function blockUnsafeConfigMutation(repo: string, args: string[]): void {
+  const unsafeConfig = firstUnsafeConfigMutation(args);
+  if (!unsafeConfig || isConfigReadOnly(args)) return;
+
+  fail(
+    errorPayload({
+      code: "COMMIT_QUEUE_HOOK_CONFIG_MUTATION_BLOCKED",
+      title: "Hook config mutation blocked",
+      detail:
+        "Git hook configuration controls repository gates and cannot be changed by protected git.",
+      context: {
+        command: "config",
+        args,
+        repo,
+        unsafe_config: unsafeConfig,
+      },
+      suggestions: [
+        "Leave repository hooks enabled and retry the original command.",
+        "If hook configuration must change, stop and ask the human.",
+      ],
+      retriable: false,
+    }),
+  );
+}
+
+function blockHistoryRewrite(repo: string, args: string[]): void {
+  fail(
+    errorPayload({
+      code: "COMMIT_QUEUE_HISTORY_REWRITE_BLOCKED",
+      title: "History rewrite blocked",
+      detail:
+        "`git history` rewrites commit history and does not currently run hooks.",
+      context: { command: "history", args, repo },
+      suggestions: [
+        "Create a follow-up commit instead of rewriting history.",
+        "If history must be rewritten, stop and ask the human.",
+      ],
+      retriable: false,
+    }),
+  );
 }
 
 function indexAwareReadEnv(

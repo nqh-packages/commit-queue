@@ -13,51 +13,20 @@ import type { LockInfo, LockOwner } from "./types.js";
 const LOCK_TIMEOUT_MS = 5000;
 const ORPHAN_LOCK_GRACE_MS = 5000;
 const HARD_STALE_LOCK_MS = 30 * 60 * 1000;
+const RECOVERED_LOCK_REASONS = new Set<LockRecoveryReason>([
+  "missing",
+  "stale",
+  "orphan",
+  "dead_owner",
+]);
+
+type LockRecoveryReason = NonNullable<LockInfo["reason"]>;
 
 export function withRepoLock(repo: string, fn: () => void): void {
   const state = statePaths();
   ensureStateDirs(state);
   const lockPath = path.join(state.locks, `${hash(repo)}.lock`);
-  const started = Date.now();
-  let currentLock: LockInfo | null = null;
-
-  while (true) {
-    try {
-      mkdirSync(lockPath);
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-      currentLock = recoverLock(lockPath);
-      if (currentLock.recovered) continue;
-
-      if (Date.now() - started > lockTimeoutMs()) {
-        fail(
-          errorPayload({
-            code: "COMMIT_QUEUE_REPO_LOCK_TIMEOUT",
-            title: "Repository lock timeout",
-            detail: "Could not acquire the commit lock for this repository.",
-            context: {
-              repo,
-              lock: lockPath,
-              lock_owner: currentLock.owner,
-              lock_age_ms: currentLock.ageMs,
-            },
-            suggestions: lockTimeoutSuggestions(currentLock),
-            retriable: true,
-          }),
-        );
-      }
-      sleep(50);
-      continue;
-    }
-
-    try {
-      writeLockMetadata(lockPath, repo);
-      break;
-    } catch (error) {
-      rmSync(lockPath, { recursive: true, force: true });
-      throw error;
-    }
-  }
+  acquireLock(lockPath, repo);
 
   let released = false;
   const release = () => {
@@ -75,6 +44,59 @@ export function withRepoLock(repo: string, fn: () => void): void {
   }
 }
 
+function acquireLock(lockPath: string, repo: string): void {
+  const started = Date.now();
+
+  while (true) {
+    const lock = tryCreateLock(lockPath, repo);
+    if (lock === "acquired") return;
+    if (lock.recovered) continue;
+    if (Date.now() - started > lockTimeoutMs()) {
+      failLockTimeout(repo, lockPath, lock);
+    }
+    sleep(50);
+  }
+}
+
+function tryCreateLock(lockPath: string, repo: string): "acquired" | LockInfo {
+  try {
+    mkdirSync(lockPath);
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "EEXIST") throw error;
+    return recoverLock(lockPath);
+  }
+
+  try {
+    writeLockMetadata(lockPath, repo);
+    return "acquired";
+  } catch (error) {
+    rmSync(lockPath, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function failLockTimeout(
+  repo: string,
+  lockPath: string,
+  lockInfo: LockInfo,
+): void {
+  fail(
+    errorPayload({
+      code: "COMMIT_QUEUE_REPO_LOCK_TIMEOUT",
+      title: "Repository lock timeout",
+      detail: "Could not acquire the commit lock for this repository.",
+      context: {
+        repo,
+        lock: lockPath,
+        lock_owner: lockInfo.owner,
+        lock_age_ms: lockInfo.ageMs,
+      },
+      suggestions: lockTimeoutSuggestions(lockInfo),
+      retriable: true,
+    }),
+  );
+}
+
 function writeLockMetadata(lockPath: string, repo: string): void {
   writeJsonAtomic(path.join(lockPath, "owner.json"), {
     pid: process.pid,
@@ -86,27 +108,26 @@ function writeLockMetadata(lockPath: string, repo: string): void {
 
 function recoverLock(lockPath: string): LockInfo {
   const info = readLockInfo(lockPath);
-  if (!info.exists) return { recovered: true, reason: "missing", ...info };
-
-  if (info.ageMs > HARD_STALE_LOCK_MS) {
+  const reason = lockRecoveryReason(info);
+  if (reason === "stale" || reason === "orphan" || reason === "dead_owner") {
     rmSync(lockPath, { recursive: true, force: true });
-    return { ...info, recovered: true, reason: "stale" };
   }
+  return {
+    ...info,
+    recovered: RECOVERED_LOCK_REASONS.has(reason),
+    reason,
+  };
+}
+
+function lockRecoveryReason(info: LockInfo): LockRecoveryReason {
+  if (!info.exists) return "missing";
+  if (info.ageMs > HARD_STALE_LOCK_MS) return "stale";
 
   if (!info.owner) {
-    if (info.ageMs > ORPHAN_LOCK_GRACE_MS) {
-      rmSync(lockPath, { recursive: true, force: true });
-      return { ...info, recovered: true, reason: "orphan" };
-    }
-    return { ...info, recovered: false, reason: "orphan_grace" };
+    return info.ageMs > ORPHAN_LOCK_GRACE_MS ? "orphan" : "orphan_grace";
   }
 
-  if (lockOwnerIsGone(info.owner)) {
-    rmSync(lockPath, { recursive: true, force: true });
-    return { ...info, recovered: true, reason: "dead_owner" };
-  }
-
-  return { ...info, recovered: false, reason: "active_owner" };
+  return lockOwnerIsGone(info.owner) ? "dead_owner" : "active_owner";
 }
 
 function readLockInfo(lockPath: string): LockInfo {

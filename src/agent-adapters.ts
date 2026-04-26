@@ -65,39 +65,13 @@ const explicitAgentAdapter: AgentIdentityAdapter = {
 const codexAgentAdapter: AgentIdentityAdapter = {
   name: "codex",
   env: ["CODEX_THREAD_ID"],
-  detect: (env) => {
-    const threadId = optionalEnv(env, "CODEX_THREAD_ID");
-    if (!threadId) return { status: "not_detected" };
-
-    return {
-      status: "detected",
-      adapter: "codex",
-      agent: {
-        name: "codex",
-        sessionId: `codex-${threadId}`,
-        detectedFrom: "CODEX_THREAD_ID",
-      },
-    };
-  },
+  detect: detectEnvBackedAgent("codex", "CODEX_THREAD_ID"),
 };
 
 const opencodeAgentAdapter: AgentIdentityAdapter = {
   name: "opencode",
   env: ["OPENCODE_SESSION_ID"],
-  detect: (env) => {
-    const sessionId = optionalEnv(env, "OPENCODE_SESSION_ID");
-    if (!sessionId) return { status: "not_detected" };
-
-    return {
-      status: "detected",
-      adapter: "opencode",
-      agent: {
-        name: "opencode",
-        sessionId: `opencode-${sessionId}`,
-        detectedFrom: "OPENCODE_SESSION_ID",
-      },
-    };
-  },
+  detect: detectEnvBackedAgent("opencode", "OPENCODE_SESSION_ID"),
 };
 
 export const agentIdentityAdapters: readonly AgentIdentityAdapter[] = [
@@ -128,6 +102,26 @@ export function checkedAgentIdentityEnv(): string[] {
 function optionalEnv(env: NodeJS.ProcessEnv, name: string): string | null {
   const value = env[name]?.trim();
   return value ? value : null;
+}
+
+function detectEnvBackedAgent(
+  adapter: string,
+  envName: string,
+): AgentIdentityAdapter["detect"] {
+  return (env) => {
+    const sessionId = optionalEnv(env, envName);
+    if (!sessionId) return { status: "not_detected" };
+
+    return {
+      status: "detected",
+      adapter,
+      agent: {
+        name: adapter,
+        sessionId: `${adapter}-${sessionId}`,
+        detectedFrom: envName,
+      },
+    };
+  };
 }
 
 function receivedExplicitEnv(
