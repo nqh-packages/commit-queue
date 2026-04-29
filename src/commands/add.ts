@@ -20,7 +20,10 @@ export function handleAdd(
   args: string[],
   globalArgs: string[] = [],
 ): void {
-  const session = requireSession("add", repo);
+  const session = requireSession("add", repo, {
+    realGit,
+    autoBootstrap: true,
+  });
   const commandCwd = process.cwd();
   const pathBaseCwd = resolveGitPathBase(realGit, repo, globalArgs);
 

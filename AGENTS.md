@@ -36,16 +36,17 @@ Read [VISION.md](./VISION.md) before changing behavior.
 | Human/raw command         | Not documented for agents                                                                                                                             |
 | Default scope             | Enabled for all Git repos                                                                                                                             |
 | Opt-out file              | `.commit-queue.json` with `{ "enabled": false }`                                                                                                      |
-| Session command           | `eval "$(git getID)"`                                                                                                                                 |
+| Session command           | Optional `eval "$(git getID)"`; detected agents auto-bootstrap on protected `git add`/`git commit`                                                    |
 | Session env vars          | `COMMIT_QUEUE_ID`, `COMMIT_QUEUE_REPO`, `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION`                                                            |
-| Agent attribution         | `git getID` requires identity from the adapter registry or explicit env vars                                                                          |
+| Agent attribution         | Auto-bootstrap and `git getID` require identity from the adapter registry or explicit env vars                                                        |
 | Commit trailers           | Protected commits append `Commit-Queue-Session`, `Coding-Agent`, and `Coding-Agent-Session`                                                           |
 | GUI human bypass          | A local hash-authorized standalone message line makes `git commit` call real Git directly; commit-queue strips the line and uses the normal Git index |
 | Installed runtime refresh | This repo installs `.githooks` for `post-commit`, `post-merge`, and `post-checkout`; hooks rebuild and reinstall the committed `HEAD` runtime         |
 | Refresh failure behavior  | A failed runtime refresh writes a stale marker and protected `git add`/`git commit` block until refresh succeeds                                      |
 | Staging                   | Explicit paths only                                                                                                                                   |
-| Index isolation           | `GIT_INDEX_FILE` per session                                                                                                                          |
+| Index isolation           | `GIT_INDEX_FILE` per internal `cq_*` session                                                                                                          |
 | Commit safety             | Per-repo lock, drift check, HEAD check                                                                                                                |
+| Active session lookup     | One active internal `cq_*` session per repo + coding-agent name + coding-agent session id                                                             |
 | Runtime state             | `~/.commit-queue/`                                                                                                                                    |
 | Quality gate              | `npm run quality` runs TypeScript, qlty check/smells, and the node test suite                                                                         |
 
@@ -92,10 +93,10 @@ first, then `$HOME/.qlty/bin/qlty`.
 
 | Command                                       | Required Behavior                                                                                                                 |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `git getID`                                   | Create session, print shell exports                                                                                               |
-| `git add path`                                | Require session, explicit paths only, stage into session index                                                                    |
-| `git commit -m "..."`                         | Require session, lock repo, verify drift, append attribution trailers, commit                                                     |
-| `git commit path -m "..."`                    | Require session, verify path matches already staged session paths, commit only matching staged paths                              |
+| `git getID`                                   | Create a fresh internal `cq_*` session, record active mapping, and print shell exports                                            |
+| `git add path`                                | Auto-bootstrap or reuse active session, require explicit paths only, stage into session index                                     |
+| `git commit -m "..."`                         | Auto-bootstrap or reuse active session, lock repo, verify drift, append attribution trailers, commit                              |
+| `git commit path -m "..."`                    | Auto-bootstrap or reuse active session, verify path matches already staged session paths, commit only matching staged paths       |
 | `git commit ...` with local human phrase line | Strip the local phrase line, write a local audit event, and commit through real Git with the normal index before protected checks |
 
 ### Blocked In Protected Add/Commit Flow
@@ -137,16 +138,17 @@ Use structured, agent-recoverable errors.
 
 ```json
 {
-  "error_code": "COMMIT_QUEUE_SESSION_REQUIRED",
-  "detail": "Git command 'add' is protected because you are sharing this checkout with other agents. Start a commit-queue session before staging or committing.",
+  "error_code": "COMMIT_QUEUE_AGENT_ID_REQUIRED",
+  "detail": "Protected commit-queue sessions require a coding agent identity so commits can be traced back to the agent session that produced them.",
   "context": {
     "command": "add",
-    "repo": "/repo"
+    "repo": "/repo",
+    "supported_agents": ["explicit", "codex", "opencode", "pi"]
   },
   "retriable": true,
   "suggestions": [
-    "Run `eval \"$(git getID)\"` from this repository, then retry.",
-    "Use explicit paths for staging: `git add path/to/file`."
+    "Run `git getID` from a supported coding agent session.",
+    "For unsupported agents, set both `COMMIT_QUEUE_AGENT` and `COMMIT_QUEUE_AGENT_SESSION`."
   ]
 }
 ```
@@ -180,26 +182,28 @@ Use TDD.
 
 ### Required Test Cases
 
-| Case                               | Expected Result                                                                                     |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Commit without session             | Blocked                                                                                             |
-| Add without session                | Blocked                                                                                             |
-| `git getID`                        | Prints valid shell exports                                                                          |
-| `git getID` without agent identity | Blocked                                                                                             |
-| Explicit add                       | Uses session index                                                                                  |
-| Broad add, directory add, glob add | Blocked                                                                                             |
-| Commit after clean add             | Creates commit with attribution trailers                                                            |
-| GUI human bypass                   | Valid local phrase line is stripped before raw-index commit and protected commit checks are skipped |
-| Reserved attribution trailer       | Blocked before Git commit                                                                           |
-| Commit staged pathspec             | Commits only matching staged session paths                                                          |
-| Commit unstaged pathspec           | Blocked before Git can read unstaged worktree content                                               |
-| Hook config mutation               | Blocked before hooks can be disabled                                                                |
-| `git history` rewrite              | Blocked because it rewrites history and does not run hooks                                          |
-| File drift after add               | Blocked                                                                                             |
-| `HEAD` drift                       | Blocked                                                                                             |
-| Opt-out config                     | Calls real Git                                                                                      |
-| Human passthrough                  | Blocked in non-interactive agent shells                                                             |
-| Agent error                        | Includes code and suggestions                                                                       |
+| Case                                                         | Expected Result                                                                                     |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Commit without session and without detectable agent identity | Blocked                                                                                             |
+| Add without session and without detectable agent identity    | Blocked                                                                                             |
+| Add without session from detected agent                      | Auto-bootstraps an internal `cq_*` session keyed by repo + agent + agent session                    |
+| Commit without session from detected agent                   | Reuses the active internal `cq_*` session for repo + agent + agent session                          |
+| `git getID`                                                  | Prints valid shell exports                                                                          |
+| `git getID` without agent identity                           | Blocked                                                                                             |
+| Explicit add                                                 | Uses session index                                                                                  |
+| Broad add, directory add, glob add                           | Blocked                                                                                             |
+| Commit after clean add                                       | Creates commit with attribution trailers                                                            |
+| GUI human bypass                                             | Valid local phrase line is stripped before raw-index commit and protected commit checks are skipped |
+| Reserved attribution trailer                                 | Blocked before Git commit                                                                           |
+| Commit staged pathspec                                       | Commits only matching staged session paths                                                          |
+| Commit unstaged pathspec                                     | Blocked before Git can read unstaged worktree content                                               |
+| Hook config mutation                                         | Blocked before hooks can be disabled                                                                |
+| `git history` rewrite                                        | Blocked because it rewrites history and does not run hooks                                          |
+| File drift after add                                         | Blocked                                                                                             |
+| `HEAD` drift                                                 | Blocked                                                                                             |
+| Opt-out config                                               | Calls real Git                                                                                      |
+| Human passthrough                                            | Blocked in non-interactive agent shells                                                             |
+| Agent error                                                  | Includes code and suggestions                                                                       |
 
 ## Implementation Guidelines
 
@@ -231,12 +235,14 @@ The real Git path must never resolve back to the shim.
 
 ## State Model
 
-| State            | Location                                | Notes                                                           |
-| ---------------- | --------------------------------------- | --------------------------------------------------------------- |
-| Session metadata | `~/.commit-queue/sessions/{id}.json`    | Repo, created time, parent `HEAD`, agent identity, staged paths |
-| Session index    | `~/.commit-queue/indexes/{id}.index`    | Used through `GIT_INDEX_FILE`                                   |
-| Repo lock        | `~/.commit-queue/locks/{repoHash}.lock` | Held only during commit/ref mutation; includes owner metadata   |
-| Event log        | `~/.commit-queue/logs/events.jsonl`     | Structured audit trail                                          |
+| State            | Location                                      | Notes                                                                                 |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Session metadata | `~/.commit-queue/sessions/{id}.json`          | Repo, created time, parent `HEAD`, agent identity, staged paths                       |
+| Session index    | `~/.commit-queue/indexes/{id}.index`          | Private Git index for one internal `cq_*` session                                     |
+| Active mapping   | `~/.commit-queue/active-sessions/{hash}.json` | Maps repo + coding-agent name + coding-agent session id to an internal `cq_*` session |
+| Session index    | `~/.commit-queue/indexes/{id}.index`          | Used through `GIT_INDEX_FILE`                                                         |
+| Repo lock        | `~/.commit-queue/locks/{repoHash}.lock`       | Held only during commit/ref mutation; includes owner metadata                         |
+| Event log        | `~/.commit-queue/logs/events.jsonl`           | Structured audit trail                                                                |
 
 ## Lock Recovery
 

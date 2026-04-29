@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -7,7 +8,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
-import type { CommitQueueSession } from "./types.js";
+import type { AgentIdentity, CommitQueueSession } from "./types.js";
 
 export type StatePaths = {
   root: string;
@@ -16,6 +17,14 @@ export type StatePaths = {
   locks: string;
   logs: string;
   staleInstalls: string;
+  activeSessions: string;
+};
+
+export type ActiveSessionMapping = {
+  repo: string;
+  agent: AgentIdentity;
+  sessionId: string;
+  updatedAt: string;
 };
 
 export function statePaths(): StatePaths {
@@ -28,6 +37,7 @@ export function statePaths(): StatePaths {
     locks: path.join(root, "locks"),
     logs: path.join(root, "logs"),
     staleInstalls: path.join(root, "stale-installs"),
+    activeSessions: path.join(root, "active-sessions"),
   };
 }
 
@@ -43,6 +53,7 @@ export function ensureStateDirs(state = statePaths()): void {
     state.locks,
     state.logs,
     state.staleInstalls,
+    state.activeSessions,
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -60,6 +71,41 @@ export function saveSession(session: CommitQueueSession): void {
     path.join(statePaths().sessions, `${session.id}.json`),
     session,
   );
+}
+
+export function loadActiveSessionMapping(
+  repo: string,
+  agent: AgentIdentity,
+): ActiveSessionMapping | null {
+  const mappingPath = activeSessionMappingPath(repo, agent);
+  if (!existsSync(mappingPath)) return null;
+  return JSON.parse(readFileSync(mappingPath, "utf8")) as ActiveSessionMapping;
+}
+
+export function saveActiveSessionMapping(
+  repo: string,
+  agent: AgentIdentity,
+  sessionId: string,
+): void {
+  writeJsonAtomic(activeSessionMappingPath(repo, agent), {
+    repo,
+    agent,
+    sessionId,
+    updatedAt: new Date().toISOString(),
+  } satisfies ActiveSessionMapping);
+}
+
+function activeSessionMappingPath(repo: string, agent: AgentIdentity): string {
+  return path.join(
+    statePaths().activeSessions,
+    `${activeSessionKey(repo, agent)}.json`,
+  );
+}
+
+function activeSessionKey(repo: string, agent: AgentIdentity): string {
+  return createHash("sha256")
+    .update(JSON.stringify([repo, agent.name, agent.sessionId]))
+    .digest("hex");
 }
 
 export function writeJsonAtomic(target: string, value: unknown): void {

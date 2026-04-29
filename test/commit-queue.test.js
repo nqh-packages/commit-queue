@@ -16,6 +16,7 @@ import test from "node:test";
 import {
   activateSession,
   createFixture,
+  defaultAgentEnv,
   createTempDir,
   runCommitQueue,
   runHgit,
@@ -276,7 +277,7 @@ test("JSON agent identity errors include recovery examples", () => {
   }
 });
 
-test("protected commands explain why a session is required", () => {
+test("protected mutations without detectable agent require agent identity", () => {
   const fixture = createFixture();
   try {
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
@@ -286,13 +287,245 @@ test("protected commands explain why a session is required", () => {
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
-    assert.match(result.stderr, /sharing this checkout with other agents/);
-    assert.match(result.stderr, /eval "\$\(git getID\)"/);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
+    assert.match(
+      result.stderr,
+      /Protected commit-queue sessions require a coding agent identity/,
+    );
     assert.match(result.stderr, /context:/);
     assert.match(result.stderr, /"command": "add"/);
     assert.match(result.stderr, /retriable: true/);
     assert.doesNotMatch(result.stderr, /hgit/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("auto-bootstrap add creates an active session for detected agents", () => {
+  const fixture = createFixture();
+  try {
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+
+    const result = runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
+      state: fixture.state,
+      env: defaultAgentEnv(),
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      runRealGit(fixture.repo, [
+        "diff",
+        "--cached",
+        "--name-only",
+      ]).stdout.trim(),
+      "",
+    );
+
+    const activeMappings = readdirSync(
+      path.join(fixture.state, "active-sessions"),
+    );
+    assert.equal(activeMappings.length, 1);
+    const mapping = JSON.parse(
+      readFileSync(
+        path.join(fixture.state, "active-sessions", activeMappings[0]),
+        "utf8",
+      ),
+    );
+    assert.match(mapping.sessionId, /^cq_/);
+    assert.equal(mapping.repo, fixture.repo);
+    assert.deepEqual(mapping.agent, {
+      name: "codex",
+      sessionId: "codex-test-session",
+      detectedFrom: "COMMIT_QUEUE_AGENT",
+    });
+
+    const sessionPath = path.join(
+      fixture.state,
+      "sessions",
+      `${mapping.sessionId}.json`,
+    );
+    const session = JSON.parse(readFileSync(sessionPath, "utf8"));
+    assert.equal(session.id, mapping.sessionId);
+    assert.equal(session.repo, fixture.repo);
+    assert.deepEqual(Object.keys(session.stagedPaths), ["src/a.ts"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("auto-bootstrap commit reuses the active session and keeps cq trailer separate", () => {
+  const fixture = createFixture();
+  try {
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    const env = defaultAgentEnv();
+
+    const add = runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
+      state: fixture.state,
+      env,
+    });
+    assert.equal(add.status, 0, add.stderr);
+
+    const commit = runCommitQueue(
+      fixture.repo,
+      ["commit", "-m", "test: add a"],
+      { state: fixture.state, env },
+    );
+
+    assert.equal(commit.status, 0, commit.stderr);
+    const message = runRealGit(fixture.repo, [
+      "log",
+      "-1",
+      "--format=%B",
+    ]).stdout;
+    const commitQueueSession = message.match(
+      /Commit-Queue-Session: (cq_[^\n]+)/,
+    )?.[1];
+    assert.match(commitQueueSession || "", /^cq_/);
+    assert.match(message, /Coding-Agent: codex/);
+    assert.match(message, /Coding-Agent-Session: codex-test-session/);
+    assert.doesNotMatch(message, /Commit-Queue-Session: codex-test-session/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("auto-bootstrap isolates different coding agent sessions", () => {
+  const fixture = createFixture();
+  try {
+    const firstAgent = {
+      COMMIT_QUEUE_AGENT: "codex",
+      COMMIT_QUEUE_AGENT_SESSION: "codex-session-a",
+    };
+    const secondAgent = {
+      COMMIT_QUEUE_AGENT: "codex",
+      COMMIT_QUEUE_AGENT_SESSION: "codex-session-b",
+    };
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
+        state: fixture.state,
+        env: firstAgent,
+      }).status,
+      0,
+    );
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/b.ts"], {
+        state: fixture.state,
+        env: secondAgent,
+      }).status,
+      0,
+    );
+
+    assert.equal(
+      readdirSync(path.join(fixture.state, "active-sessions")).length,
+      2,
+    );
+
+    const commit = runCommitQueue(
+      fixture.repo,
+      ["commit", "-m", "test: add a"],
+      { state: fixture.state, env: firstAgent },
+    );
+
+    assert.equal(commit.status, 0, commit.stderr);
+    assert.equal(
+      runRealGit(fixture.repo, [
+        "log",
+        "-1",
+        "--name-only",
+        "--format=",
+      ]).stdout.trim(),
+      "src/a.ts",
+    );
+    assert.equal(
+      runRealGit(fixture.repo, ["status", "--short", "src/b.ts"]).stdout.trim(),
+      "?? src/b.ts",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("auto-bootstrap replaces stale active mappings", () => {
+  const fixture = createFixture();
+  try {
+    const env = defaultAgentEnv();
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
+        state: fixture.state,
+        env,
+      }).status,
+      0,
+    );
+
+    const activeMappingPath = path.join(
+      fixture.state,
+      "active-sessions",
+      readdirSync(path.join(fixture.state, "active-sessions"))[0],
+    );
+    const staleMapping = JSON.parse(readFileSync(activeMappingPath, "utf8"));
+    rmSync(
+      path.join(fixture.state, "sessions", `${staleMapping.sessionId}.json`),
+    );
+
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+    const add = runCommitQueue(fixture.repo, ["add", "src/b.ts"], {
+      state: fixture.state,
+      env,
+    });
+
+    assert.equal(add.status, 0, add.stderr);
+    const freshMapping = JSON.parse(readFileSync(activeMappingPath, "utf8"));
+    assert.match(freshMapping.sessionId, /^cq_/);
+    assert.notEqual(freshMapping.sessionId, staleMapping.sessionId);
+    const freshSession = JSON.parse(
+      readFileSync(
+        path.join(fixture.state, "sessions", `${freshMapping.sessionId}.json`),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(Object.keys(freshSession.stagedPaths), ["src/b.ts"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("explicit COMMIT_QUEUE_ID takes priority over active auto-bootstrap mapping", () => {
+  const fixture = createFixture();
+  try {
+    const agentEnv = defaultAgentEnv();
+    writeRepoFile(fixture.repo, "src/auto.ts", "export const auto = 1;\n");
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/auto.ts"], {
+        state: fixture.state,
+        env: agentEnv,
+      }).status,
+      0,
+    );
+
+    const explicitEnv = activateSession(fixture.repo, fixture.state, {
+      COMMIT_QUEUE_AGENT: "codex",
+      COMMIT_QUEUE_AGENT_SESSION: "manual-session",
+    });
+    writeRepoFile(fixture.repo, "src/manual.ts", "export const manual = 1;\n");
+
+    const add = runCommitQueue(fixture.repo, ["add", "src/manual.ts"], {
+      state: fixture.state,
+      env: { ...agentEnv, COMMIT_QUEUE_ID: explicitEnv.COMMIT_QUEUE_ID },
+    });
+
+    assert.equal(add.status, 0, add.stderr);
+    assert.equal(
+      runRealGitWithIndex(
+        fixture.repo,
+        sessionIndexPath(fixture.state, explicitEnv.COMMIT_QUEUE_ID),
+        ["diff", "--cached", "--name-only"],
+      ).stdout.trim(),
+      "src/manual.ts",
+    );
   } finally {
     fixture.cleanup();
   }
@@ -368,9 +601,9 @@ test("mutating commands are protected when repo is selected with global Git opti
     );
 
     assert.notEqual(fromDashC.status, 0);
-    assert.match(fromDashC.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.match(fromDashC.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
     assert.notEqual(fromGitDir.status, 0);
-    assert.match(fromGitDir.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.match(fromGitDir.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
     assert.equal(
       runRealGit(fixture.repo, [
         "diff",
@@ -397,11 +630,11 @@ test("JSON error mode returns structured agent-recoverable errors", () => {
 
     assert.notEqual(result.status, 0);
     const error = JSON.parse(result.stderr);
-    assert.equal(error.error_code, "COMMIT_QUEUE_SESSION_REQUIRED");
+    assert.equal(error.error_code, "COMMIT_QUEUE_AGENT_ID_REQUIRED");
     assert.equal(error.retriable, true);
     assert.equal(error.context.command, "add");
-    assert.match(error.detail, /sharing this checkout with other agents/);
-    assert.match(error.suggestions.join("\n"), /git getID/);
+    assert.match(error.detail, /coding agent identity/);
+    assert.match(error.suggestions.join("\n"), /Example Codex/);
     assert.doesNotMatch(JSON.stringify(error), /hgit/);
   } finally {
     fixture.cleanup();
@@ -1248,7 +1481,7 @@ test("human bypass only matches a standalone secret line", () => {
     );
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
     assert.equal(
       runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(),
       "test: initial",
@@ -1322,7 +1555,7 @@ test("human bypass rejects inline secrets in Git message files", () => {
     );
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /COMMIT_QUEUE_SESSION_REQUIRED/);
+    assert.match(result.stderr, /COMMIT_QUEUE_AGENT_ID_REQUIRED/);
     assert.equal(
       runRealGit(fixture.repo, ["log", "-1", "--pretty=%s"]).stdout.trim(),
       "test: initial",
@@ -2110,7 +2343,7 @@ test("invalid opt-out config fails open to protected mode", () => {
     assert.notEqual(result.status, 0);
     assert.match(
       result.stderr,
-      /COMMIT_QUEUE_SESSION_REQUIRED|COMMIT_QUEUE_BROAD_ADD_BLOCKED/,
+      /COMMIT_QUEUE_AGENT_ID_REQUIRED|COMMIT_QUEUE_BROAD_ADD_BLOCKED/,
     );
   } finally {
     fixture.cleanup();
@@ -2130,7 +2363,7 @@ test("COMMIT_QUEUE_BYPASS is ignored by protected git", () => {
     assert.notEqual(result.status, 0);
     assert.match(
       result.stderr,
-      /COMMIT_QUEUE_SESSION_REQUIRED|COMMIT_QUEUE_BROAD_ADD_BLOCKED/,
+      /COMMIT_QUEUE_AGENT_ID_REQUIRED|COMMIT_QUEUE_BROAD_ADD_BLOCKED/,
     );
     assert.equal(
       runRealGit(fixture.repo, [

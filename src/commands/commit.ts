@@ -26,7 +26,10 @@ export function handleCommit(
   args: string[],
 ): void {
   const policy = inspectCommitArgs(args);
-  const session = requireSession("commit", repo);
+  const session = requireSession("commit", repo, {
+    realGit,
+    autoBootstrap: true,
+  });
   assertNoBlockedPolicy(policy, args, repo, session.id);
   assertNoReservedAttributionTrailers(args, repo, session.id);
 

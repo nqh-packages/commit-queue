@@ -113,6 +113,13 @@ function runNode(script, cwd, args, options = {}) {
   return runCommand(process.execPath, [script, ...args], {
     cwd,
     env: {
+      CODEX_THREAD_ID: "",
+      COMMIT_QUEUE_AGENT: "",
+      COMMIT_QUEUE_AGENT_SESSION: "",
+      OPENCODE_SESSION_ID: "",
+      PI_CODING_AGENT: "",
+      PI_SESSION_ID: "",
+      PI_CODING_AGENT_SESSION: "",
       COMMIT_QUEUE_STATE_DIR: options.state,
       COMMIT_QUEUE_REAL_GIT: realGit,
       ...options.env,
@@ -126,6 +133,7 @@ function runCommand(command, args, options = {}) {
     cwd: options.cwd,
     env: {
       ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
       ...options.env,
     },
     encoding: "utf8",

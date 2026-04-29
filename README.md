@@ -9,20 +9,21 @@ Tiny Git safety wrapper for people running multiple AI coding agents in the same
 | Why it works  | Each agent session gets isolated staging, commits serialize, and commits carry agent attribution |
 | Status        | Local v1                                                                                         |
 
-Agent flow:
+Detected-agent flow:
 
 ```bash
-eval "$(git getID)"
 git add src/file.ts
 git commit -m "fix: update file"
 ```
 
-For unsupported agents, provide explicit attribution before `git getID`:
+`commit-queue` auto-bootstraps one active `cq_*` session per repo, coding-agent name, and coding-agent session id. `git getID` is still available when an agent wants explicit shell exports or a fresh queue session.
+
+For unsupported agents, provide explicit attribution before staging or committing:
 
 ```bash
-export COMMIT_QUEUE_AGENT="codex"
-export COMMIT_QUEUE_AGENT_SESSION="codex-917838637383"
-eval "$(git getID)"
+export COMMIT_QUEUE_AGENT="claude-code"
+export COMMIT_QUEUE_AGENT_SESSION="claude-code-917838637383"
+git add src/file.ts
 ```
 
 Both explicit variables are required. `COMMIT_QUEUE_AGENT_SESSION` alone is not enough because commit attribution needs the coding platform name and the platform session id.
@@ -76,15 +77,15 @@ Now Agent A's commit may contain Agent B's work.
 
 ## Why It Works
 
-| Problem                            | commit-queue Rule                                             |
-| ---------------------------------- | ------------------------------------------------------------- |
-| Agents share one Git index         | Each session gets its own index with `GIT_INDEX_FILE`         |
-| Agents use broad staging           | `git add .`, `git add -A`, and `git commit -a` are blocked    |
-| Agents commit at the same time     | Commits run through a per-repo lock                           |
-| A stale lock remains               | Lock owner metadata lets the wrapper recover it automatically |
-| A file changes after staging       | Commit blocks until the agent stages again                    |
-| Commit history loses agent context | Protected commits append attribution trailers                 |
-| Humans need escape                 | `hgit` calls real Git only from an interactive terminal       |
+| Problem                            | commit-queue Rule                                                     |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| Agents share one Git index         | Each internal `cq_*` session gets its own index with `GIT_INDEX_FILE` |
+| Agents use broad staging           | `git add .`, `git add -A`, and `git commit -a` are blocked            |
+| Agents commit at the same time     | Commits run through a per-repo lock                                   |
+| A stale lock remains               | Lock owner metadata lets the wrapper recover it automatically         |
+| A file changes after staging       | Commit blocks until the agent stages again                            |
+| Commit history loses agent context | Protected commits append attribution trailers                         |
+| Humans need escape                 | `hgit` calls real Git only from an interactive terminal               |
 
 ## Why It Is Good
 
@@ -121,13 +122,22 @@ npm run test:coverage
 
 `npm run install:local` also configures this repository's `.githooks`. After `post-commit`, `post-merge`, and `post-checkout`, the hook rebuilds and reinstalls the committed `HEAD` runtime into `~/.commit-queue`. If that refresh fails, protected `git add` and `git commit` in this repo block until the refresh succeeds.
 
-Agent flow:
+Detected-agent flow:
+
+```bash
+git add path/to/file
+git commit -m "fix: describe change"
+```
+
+Optional explicit session flow:
 
 ```bash
 eval "$(git getID)"
 git add path/to/file
 git commit -m "fix: describe change"
 ```
+
+Without `COMMIT_QUEUE_ID`, protected `git add` and `git commit` reuse or create the active internal `cq_*` session for the current repo + coding agent + coding-agent session. With `COMMIT_QUEUE_ID`, the explicit session takes priority.
 
 Protected commits append native Git trailers:
 
@@ -136,6 +146,8 @@ Commit-Queue-Session: cq_20260414_ab12
 Coding-Agent: codex
 Coding-Agent-Session: codex-917838637383
 ```
+
+`Commit-Queue-Session` stays the internal `cq_*` safety-session id. `Coding-Agent-Session` stays the external platform session id used for attribution and active-session lookup.
 
 Human flow:
 
