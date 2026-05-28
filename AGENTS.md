@@ -80,6 +80,22 @@ Qlty is required for this repo. Install with `curl https://qlty.sh | bash` if
 `npm run quality` reports that `qlty` is missing. The wrapper checks `PATH`
 first, then `$HOME/.qlty/bin/qlty`.
 
+## Environment contract (Varlock exception)
+
+commit-queue reads coding-agent session env at runtime (`CODEX_THREAD_ID`,
+`PI_SESSION_ID`, `CURSOR_AGENT_SESSION_ID`, `CURSOR_TRANSCRIPT_PATH`, etc.) to
+attribute protected commits. It does not load deploy secrets or managed app
+config from `.env` files.
+
+| Field                  | Value                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| Owner                  | commit-queue maintainers                                                                                 |
+| Scope                  | `src/agent-adapters.ts`, `src/agent-identity.ts`, `src/cli.ts`, and related tests only                   |
+| Validation             | Env names are constants; values are opaque platform session ids, never logged as secrets                 |
+| Secret-leak protection | No `.env` files in repo; do not document real session ids in committed docs                              |
+| Migration trigger      | If commit-queue gains deployable services or shared secrets, add `.env.schema` and remove this exception |
+| Verification           | `npm run quality` before commit                                                                          |
+
 ## Command Policy
 
 ### Pass Through Without Session

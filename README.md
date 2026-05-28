@@ -30,12 +30,13 @@ Both explicit variables are required. `COMMIT_QUEUE_AGENT_SESSION` alone is not 
 
 Built-in identity adapters:
 
-| Adapter    | Env                                                |
-| ---------- | -------------------------------------------------- |
-| `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION` |
-| `codex`    | `CODEX_THREAD_ID`                                  |
-| `opencode` | `OPENCODE_SESSION_ID`                              |
-| `pi`       | `PI_SESSION_ID`, `PI_CODING_AGENT_SESSION`         |
+| Adapter    | Env                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `explicit` | `COMMIT_QUEUE_AGENT`, `COMMIT_QUEUE_AGENT_SESSION`                                                                       |
+| `codex`    | `CODEX_THREAD_ID`                                                                                                        |
+| `opencode` | `OPENCODE_SESSION_ID`                                                                                                    |
+| `pi`       | `PI_SESSION_ID`, `PI_CODING_AGENT_SESSION`                                                                               |
+| `cursor`   | `CURSOR_AGENT_SESSION_ID`, `CURSOR_TRANSCRIPT_PATH` (see [integrations/cursor/README.md](integrations/cursor/README.md)) |
 
 Human flow, from an interactive terminal:
 

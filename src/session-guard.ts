@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { detectAgentIdentity } from "./agent-identity.js";
+import { detectAgentIdentityFromEnv } from "./agent-adapters.js";
 import { errorPayload, fail } from "./errors.js";
 import { createCommitQueueSession } from "./session-bootstrap.js";
 import {
@@ -57,6 +58,28 @@ export function requireSession(
         retriable: true,
       }),
     );
+  }
+
+  return session;
+}
+
+export function findCurrentActiveSession(
+  command: string,
+  repo: string,
+): CommitQueueSession | null {
+  const detection = detectAgentIdentityFromEnv();
+  if (detection.status !== "detected") return null;
+
+  const agent = detectAgentIdentity(command, repo);
+  const mapping = loadActiveSessionMapping(repo, agent);
+  if (!mapping) return null;
+
+  const session = loadSession(mapping.sessionId);
+  if (
+    !session ||
+    !activeSessionIsValid(session, mapping.sessionId, repo, agent)
+  ) {
+    return null;
   }
 
   return session;

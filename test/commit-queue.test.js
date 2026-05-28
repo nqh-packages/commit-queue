@@ -269,7 +269,7 @@ test("JSON agent identity errors include recovery examples", () => {
     assert.deepEqual(error.context.missing_env, ["COMMIT_QUEUE_AGENT"]);
     assert.deepEqual(
       error.context.examples.map((example) => example.label),
-      ["unsupported agent", "Codex", "OpenCode", "Pi"],
+      ["unsupported agent", "Codex", "OpenCode", "Pi", "Cursor"],
     );
     assert.match(error.suggestions.join("\n"), /Example unsupported agent/);
   } finally {
@@ -305,10 +305,11 @@ test("auto-bootstrap add creates an active session for detected agents", () => {
   const fixture = createFixture();
   try {
     writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    const env = defaultAgentEnv();
 
     const result = runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
       state: fixture.state,
-      env: defaultAgentEnv(),
+      env,
     });
 
     assert.equal(result.status, 0, result.stderr);
@@ -338,6 +339,21 @@ test("auto-bootstrap add creates an active session for detected agents", () => {
       sessionId: "codex-test-session",
       detectedFrom: "COMMIT_QUEUE_AGENT",
     });
+
+    const status = runCommitQueue(fixture.repo, ["status", "--short"], {
+      state: fixture.state,
+      env,
+    });
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(status.stdout.trim(), "A  src/a.ts");
+
+    const diffCached = runCommitQueue(
+      fixture.repo,
+      ["diff", "--cached", "--name-only"],
+      { state: fixture.state, env },
+    );
+    assert.equal(diffCached.status, 0, diffCached.stderr);
+    assert.equal(diffCached.stdout.trim(), "src/a.ts");
 
     const sessionPath = path.join(
       fixture.state,

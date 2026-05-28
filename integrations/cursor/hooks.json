@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "integrations/cursor/hooks/session-start.sh"
+      }
+    ]
+  }
+}

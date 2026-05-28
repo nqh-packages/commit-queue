@@ -1,3 +1,7 @@
+import {
+  resolveLatestCursorSessionId,
+  sessionIdFromTranscriptPath,
+} from "./cursor-session.js";
 import type { AgentIdentity } from "./types.js";
 
 const EXPLICIT_AGENT_ENV = "COMMIT_QUEUE_AGENT";
@@ -9,6 +13,19 @@ const EXPLICIT_AGENT_ENV_PAIR = [
 const PI_AGENT_ENV = "PI_CODING_AGENT";
 const PI_SESSION_ENV = "PI_SESSION_ID";
 const PI_CODING_AGENT_SESSION_ENV = "PI_CODING_AGENT_SESSION";
+const CURSOR_AGENT_SESSION_ENV = "CURSOR_AGENT_SESSION_ID";
+const CURSOR_CONVERSATION_ENV = "CURSOR_CONVERSATION_ID";
+const CURSOR_TRANSCRIPT_PATH_ENV = "CURSOR_TRANSCRIPT_PATH";
+const CURSOR_PROJECT_DIR_ENV = "CURSOR_PROJECT_DIR";
+const CURSOR_AGENT_ENV = "CURSOR_AGENT";
+const CURSOR_TRACE_ID_ENV = "CURSOR_TRACE_ID";
+const CURSOR_INVOKED_AS_ENV = "CURSOR_INVOKED_AS";
+const CURSOR_TRANSCRIPT_FS_DETECTED_FROM = "CURSOR_TRANSCRIPT_FS";
+
+export type AgentIdentityDetectContext = {
+  /** Git repo root when known (improves Cursor filesystem fallback). */
+  repo?: string;
+};
 
 export type AgentIdentityAdapterDetection =
   | {
@@ -29,7 +46,10 @@ export type AgentIdentityAdapterDetection =
 export type AgentIdentityAdapter = {
   name: string;
   env: readonly string[];
-  detect: (env: NodeJS.ProcessEnv) => AgentIdentityAdapterDetection;
+  detect: (
+    env: NodeJS.ProcessEnv,
+    context?: AgentIdentityDetectContext,
+  ) => AgentIdentityAdapterDetection;
 };
 
 const explicitAgentAdapter: AgentIdentityAdapter = {
@@ -114,18 +134,90 @@ const piAgentAdapter: AgentIdentityAdapter = {
   },
 };
 
+const cursorAgentAdapter: AgentIdentityAdapter = {
+  name: "cursor",
+  env: [
+    CURSOR_AGENT_SESSION_ENV,
+    CURSOR_CONVERSATION_ENV,
+    CURSOR_TRANSCRIPT_PATH_ENV,
+    CURSOR_PROJECT_DIR_ENV,
+    CURSOR_AGENT_ENV,
+    CURSOR_TRACE_ID_ENV,
+    CURSOR_INVOKED_AS_ENV,
+  ],
+  detect: (env, context = {}) => {
+    const hookSession =
+      optionalEnv(env, CURSOR_AGENT_SESSION_ENV) ??
+      optionalEnv(env, CURSOR_CONVERSATION_ENV);
+    const transcriptPath = optionalEnv(env, CURSOR_TRANSCRIPT_PATH_ENV);
+    const transcriptSession = transcriptPath
+      ? sessionIdFromTranscriptPath(transcriptPath)
+      : null;
+    const sessionId = hookSession ?? transcriptSession;
+
+    if (sessionId) {
+      const detectedFrom = hookSession
+        ? optionalEnv(env, CURSOR_AGENT_SESSION_ENV)
+          ? CURSOR_AGENT_SESSION_ENV
+          : CURSOR_CONVERSATION_ENV
+        : CURSOR_TRANSCRIPT_PATH_ENV;
+
+      return {
+        status: "detected",
+        adapter: "cursor",
+        agent: {
+          name: "cursor",
+          sessionId: `cursor-${sessionId}`,
+          detectedFrom,
+        },
+      };
+    }
+
+    if (!isCursorAgentShell(env)) return { status: "not_detected" };
+
+    const repoRoot =
+      context.repo ?? optionalEnv(env, CURSOR_PROJECT_DIR_ENV) ?? process.cwd();
+    const filesystemSession = resolveLatestCursorSessionId(repoRoot);
+    if (filesystemSession) {
+      return {
+        status: "detected",
+        adapter: "cursor",
+        agent: {
+          name: "cursor",
+          sessionId: `cursor-${filesystemSession}`,
+          detectedFrom: CURSOR_TRANSCRIPT_FS_DETECTED_FROM,
+        },
+      };
+    }
+
+    return {
+      status: "blocked",
+      adapter: "cursor",
+      reason: "cursor_session_id_missing",
+      context: {
+        required_env: [CURSOR_AGENT_SESSION_ENV],
+        received_env: receivedCursorShellEnv(env),
+        install_hint:
+          "Merge integrations/cursor/hooks.json sessionStart hook (see integrations/cursor/README.md) or export CURSOR_AGENT_SESSION_ID before git getID.",
+      },
+    };
+  },
+};
+
 export const agentIdentityAdapters: readonly AgentIdentityAdapter[] = [
   explicitAgentAdapter,
   codexAgentAdapter,
   opencodeAgentAdapter,
   piAgentAdapter,
+  cursorAgentAdapter,
 ];
 
 export function detectAgentIdentityFromEnv(
   env: NodeJS.ProcessEnv = process.env,
+  context: AgentIdentityDetectContext = {},
 ): AgentIdentityAdapterDetection {
   for (const adapter of agentIdentityAdapters) {
-    const detection = adapter.detect(env);
+    const detection = adapter.detect(env, context);
     if (detection.status !== "not_detected") return detection;
   }
 
@@ -183,4 +275,21 @@ function missingExplicitEnv(
     ...(explicitAgent ? [] : [EXPLICIT_AGENT_ENV]),
     ...(explicitSession ? [] : [EXPLICIT_AGENT_SESSION_ENV]),
   ];
+}
+
+function isCursorAgentShell(env: NodeJS.ProcessEnv): boolean {
+  if (optionalEnv(env, CURSOR_AGENT_ENV)) return true;
+  if (optionalEnv(env, CURSOR_TRACE_ID_ENV)) return true;
+  if (optionalEnv(env, CURSOR_INVOKED_AS_ENV) === "agent") return true;
+  if (optionalEnv(env, CURSOR_TRANSCRIPT_PATH_ENV)) return true;
+  return false;
+}
+
+function receivedCursorShellEnv(env: NodeJS.ProcessEnv): string[] {
+  return [
+    CURSOR_AGENT_ENV,
+    CURSOR_TRACE_ID_ENV,
+    CURSOR_INVOKED_AS_ENV,
+    CURSOR_TRANSCRIPT_PATH_ENV,
+  ].filter((name) => Boolean(optionalEnv(env, name)));
 }

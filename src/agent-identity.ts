@@ -12,7 +12,7 @@ export function detectAgentIdentity(
   command: string,
   repo: string,
 ): AgentIdentity {
-  const detection = detectAgentIdentityFromEnv();
+  const detection = detectAgentIdentityFromEnv(process.env, { repo });
   if (detection.status === "detected") {
     return validateAgentIdentity(command, repo, detection.agent);
   }
@@ -161,6 +161,13 @@ function agentIdentityRecoveryExamples(): Array<Record<string, string>> {
       description: "Run from Pi so PI_SESSION_ID is present.",
       command: 'eval "$(git getID)"',
       detected_env: "PI_SESSION_ID",
+    },
+    {
+      label: "Cursor",
+      description:
+        "Install the sessionStart hook (integrations/cursor/README.md) or run from Cursor Agent so transcript discovery works.",
+      command: 'eval "$(git getID)"',
+      detected_env: "CURSOR_AGENT_SESSION_ID",
     },
   ];
 }

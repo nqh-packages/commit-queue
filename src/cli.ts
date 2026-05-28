@@ -20,7 +20,7 @@ import {
   writeHumanNoVerifyBypassEvent,
 } from "./human-bypass.js";
 import { assertNoFailedInstallRefresh } from "./install-refresh-guard.js";
-import { requireSession } from "./session-guard.js";
+import { findCurrentActiveSession, requireSession } from "./session-guard.js";
 
 export function runProtectedGit(args: string[]): void {
   const realGit = resolveRealGit();
@@ -176,9 +176,13 @@ function indexAwareReadEnv(
   command: string,
   repo: string,
 ): NodeJS.ProcessEnv | undefined {
-  if (!process.env.COMMIT_QUEUE_ID || !usesGitIndexForInspection(command))
-    return undefined;
-  const session = requireSession(command, repo);
+  if (!usesGitIndexForInspection(command)) return undefined;
+
+  const session = process.env.COMMIT_QUEUE_ID
+    ? requireSession(command, repo)
+    : findCurrentActiveSession(command, repo);
+  if (!session) return undefined;
+
   return { GIT_INDEX_FILE: session.indexPath };
 }
 
