@@ -20,17 +20,23 @@ export type HumanNoVerifyBypass = {
   sanitizedArgs: string[];
 };
 
+export type HumanNoVerifyBypassOptions = {
+  messageCwd?: string;
+};
+
 export function detectHumanNoVerifyBypass(
   args: string[],
+  options: HumanNoVerifyBypassOptions = {},
 ): HumanNoVerifyBypass | null {
   const config = readHumanBypassConfig();
   const expectedHash = config?.humanNoVerifyPhraseHash;
   if (!expectedHash) return null;
 
   const sanitizedArgs = [...args];
+  const messageCwd = options.messageCwd || process.cwd();
 
   for (let index = 0; index < sanitizedArgs.length; index += 1) {
-    const message = messageSourceAt(sanitizedArgs, index);
+    const message = messageSourceAt(sanitizedArgs, index, messageCwd);
     if (!message) continue;
 
     const stripped = stripMatchingSecretLine(message.content, expectedHash);
@@ -59,8 +65,13 @@ export function writeHumanNoVerifyBypassEvent(repo: string): void {
     path.join(statePaths().logs, "events.jsonl"),
     `${JSON.stringify({
       type: "commit_queue.human_no_verify_bypass",
+      actor: "human",
       repo,
       command: "commit",
+      session: null,
+      target_paths: [],
+      outcome: "success",
+      reason: "local_hash_authorized_message_line",
       timestamp: new Date().toISOString(),
     })}\n`,
   );
@@ -83,7 +94,11 @@ type MessageSource =
   | { kind: "file"; content: string }
   | { kind: "joined-file"; content: string; prefix: string };
 
-function messageSourceAt(args: string[], index: number): MessageSource | null {
+function messageSourceAt(
+  args: string[],
+  index: number,
+  messageCwd: string,
+): MessageSource | null {
   const arg = args[index] || "";
   if ((arg === "-m" || arg === "--message") && index + 1 < args.length) {
     return { kind: "message", content: args[index + 1] || "" };
@@ -98,11 +113,15 @@ function messageSourceAt(args: string[], index: number): MessageSource | null {
   }
 
   if ((arg === "-F" || arg === "--file") && index + 1 < args.length) {
-    return messageFileSource(args[index + 1] || "", "file");
+    return messageFileSource(args[index + 1] || "", "file", messageCwd);
   }
 
   if (arg.startsWith("--file=")) {
-    return messageFileSource(arg.slice("--file=".length), "joined-file");
+    return messageFileSource(
+      arg.slice("--file=".length),
+      "joined-file",
+      messageCwd,
+    );
   }
 
   return null;
@@ -111,11 +130,15 @@ function messageSourceAt(args: string[], index: number): MessageSource | null {
 function messageFileSource(
   filePath: string,
   kind: "file" | "joined-file",
+  messageCwd: string,
 ): MessageSource | null {
   if (!filePath || filePath === "-") return null;
 
   try {
-    const content = readFileSync(path.resolve(filePath), "utf8");
+    const resolvedPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(messageCwd, filePath);
+    const content = readFileSync(resolvedPath, "utf8");
     if (kind === "joined-file") {
       return { kind, content, prefix: "--file=" };
     }

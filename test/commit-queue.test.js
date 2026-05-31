@@ -1472,6 +1472,13 @@ test("human bypass commits from the raw Git index and strips the secret line", (
       "utf8",
     );
     assert.match(events, /commit_queue\.human_no_verify_bypass/);
+    const [event] = events
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(event.actor, "human");
+    assert.equal(event.outcome, "success");
+    assert.equal(event.reason, "local_hash_authorized_message_line");
     assert.doesNotMatch(events, /local gui bypass phrase/);
   } finally {
     fixture.cleanup();
@@ -1545,6 +1552,45 @@ test("human bypass supports Git message files from GUI clients", () => {
       assert.match(message, new RegExp(`test: gui file commit ${fileName}`));
       assert.doesNotMatch(message, /local gui bypass phrase/);
     }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("human bypass message files honor global -C cwd semantics", () => {
+  const fixture = createFixture();
+  try {
+    const secret = "local gui bypass phrase";
+    writeHumanBypassConfig(fixture.state, secret);
+    writeRepoFile(
+      fixture.repo,
+      "apps/booknow/src/a.ts",
+      "export const a = 1;\n",
+    );
+    assert.equal(
+      runRealGit(fixture.repo, ["add", "apps/booknow/src/a.ts"]).status,
+      0,
+    );
+    writeRepoFile(
+      fixture.repo,
+      "apps/booknow/message.txt",
+      `test: gui file with c\n${secret}\n`,
+    );
+
+    const result = runCommitQueue(
+      fixture.repo,
+      ["-C", "apps/booknow", "commit", "--no-verify", "-F", "message.txt"],
+      { state: fixture.state },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const message = runRealGit(fixture.repo, [
+      "log",
+      "-1",
+      "--format=%B",
+    ]).stdout;
+    assert.match(message, /test: gui file with c/);
+    assert.doesNotMatch(message, /local gui bypass phrase/);
   } finally {
     fixture.cleanup();
   }

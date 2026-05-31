@@ -12,6 +12,7 @@ import { errorPayload, exitWithResult, fail } from "./errors.js";
 import {
   isRepoOptedOut,
   resolveRealGit,
+  resolveGitPathBase,
   resolveRepo,
   runGit,
 } from "./git-runtime.js";
@@ -97,7 +98,9 @@ function tryHumanBypassCommit(
   repo: string,
   invocation: Invocation,
 ): void {
-  const bypass = detectHumanNoVerifyBypass(invocation.commandArgs);
+  const bypass = detectHumanNoVerifyBypass(invocation.commandArgs, {
+    messageCwd: resolveGitPathBase(realGit, repo, invocation.globalArgs),
+  });
   if (!bypass) return;
 
   const commit = runGit(realGit, [
