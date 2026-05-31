@@ -27,6 +27,16 @@ export type ActiveSessionMapping = {
   updatedAt: string;
 };
 
+export class CorruptStateFileError extends Error {
+  constructor(
+    readonly stateFile: string,
+    readonly stateKind: "session" | "active-session",
+  ) {
+    super(`Corrupt commit-queue ${stateKind} state file`);
+    this.name = "CorruptStateFileError";
+  }
+}
+
 export function statePaths(): StatePaths {
   const root =
     process.env.COMMIT_QUEUE_STATE_DIR || path.join(homedir(), ".commit-queue");
@@ -62,7 +72,7 @@ export function ensureStateDirs(state = statePaths()): void {
 export function loadSession(id: string): CommitQueueSession | null {
   const sessionPath = path.join(statePaths().sessions, `${id}.json`);
   if (!existsSync(sessionPath)) return null;
-  return JSON.parse(readFileSync(sessionPath, "utf8")) as CommitQueueSession;
+  return readJsonState(sessionPath, "session") as CommitQueueSession;
 }
 
 export function saveSession(session: CommitQueueSession): void {
@@ -79,7 +89,12 @@ export function loadActiveSessionMapping(
 ): ActiveSessionMapping | null {
   const mappingPath = activeSessionMappingPath(repo, agent);
   if (!existsSync(mappingPath)) return null;
-  return JSON.parse(readFileSync(mappingPath, "utf8")) as ActiveSessionMapping;
+  try {
+    return readJsonState(mappingPath, "active-session") as ActiveSessionMapping;
+  } catch (error) {
+    if (error instanceof CorruptStateFileError) return null;
+    throw error;
+  }
 }
 
 export function saveActiveSessionMapping(
@@ -113,4 +128,15 @@ export function writeJsonAtomic(target: string, value: unknown): void {
   const temp = `${target}.${process.pid}.tmp`;
   writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`);
   renameSync(temp, target);
+}
+
+function readJsonState(
+  target: string,
+  kind: CorruptStateFileError["stateKind"],
+): unknown {
+  try {
+    return JSON.parse(readFileSync(target, "utf8"));
+  } catch {
+    throw new CorruptStateFileError(target, kind);
+  }
 }

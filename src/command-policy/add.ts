@@ -22,7 +22,24 @@ export function hasBroadAdd(args: string[]): boolean {
 }
 
 export function explicitPathArgs(args: string[]): string[] {
-  return args.filter((arg) => arg !== "--" && !arg.startsWith("-"));
+  const paths: string[] = [];
+  let afterSeparator = false;
+
+  for (const arg of args) {
+    if (afterSeparator) {
+      paths.push(arg);
+      continue;
+    }
+
+    if (arg === "--") {
+      afterSeparator = true;
+      continue;
+    }
+
+    if (!arg.startsWith("-")) paths.push(arg);
+  }
+
+  return paths;
 }
 
 export function firstUnsafeAddPathspec(
@@ -76,7 +93,11 @@ function isBroadPathspec(arg: string): boolean {
   const modifiers =
     magic[1]?.split(",").map((modifier) => modifier.trim()) || [];
   const pattern = magic[2] || "";
-  return modifiers.includes("glob") && (pattern === "**" || pattern === "**/*");
+  const normalizedPattern = pattern.replace(/^\/+/, "");
+  return (
+    modifiers.includes("glob") &&
+    (normalizedPattern === "**" || normalizedPattern === "**/*")
+  );
 }
 
 function hasPathspecWildcard(pathspec: string): boolean {

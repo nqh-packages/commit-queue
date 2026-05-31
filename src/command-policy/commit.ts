@@ -26,6 +26,7 @@ export function inspectCommitArgs(args: string[]): CommitPolicy {
     noVerify: false,
     amend: false,
     pathspecs: [],
+    pathspecOptions: [],
   };
   let consumeNext = false;
   let afterSeparator = false;
@@ -67,11 +68,16 @@ function classifyCommitArg(
     state = pathspecState(true);
   } else if (arg === "--") {
     state = skipState({ afterSeparator: true });
-  } else if (arg === "--all") {
+  } else if (arg === "--all" || arg.startsWith("--all=")) {
     state = kindState("commit_all");
-  } else if (arg === "--no-verify" || arg === "--no-post-rewrite") {
+  } else if (
+    arg === "--no-verify" ||
+    arg.startsWith("--no-verify=") ||
+    arg === "--no-post-rewrite" ||
+    arg.startsWith("--no-post-rewrite=")
+  ) {
     state = kindState("no_verify");
-  } else if (arg === "--amend") {
+  } else if (arg === "--amend" || arg.startsWith("--amend=")) {
     state = kindState("amend");
   } else if (isCommitPathspecOption(arg)) {
     state = kindState("pathspec");
@@ -98,7 +104,12 @@ function applyCommitArgState(
   if (state.kind === "commit_all") policy.commitAll = true;
   if (state.kind === "no_verify") policy.noVerify = true;
   if (state.kind === "amend") policy.amend = true;
-  if (state.kind === "pathspec") policy.pathspecs.push(arg);
+  if (state.kind === "pathspec") {
+    policy.pathspecs.push(arg);
+    if (!state.afterSeparator && arg.startsWith("-")) {
+      policy.pathspecOptions.push(arg);
+    }
+  }
   if (state.kind === "short_options") inspectCommitShortOptions(arg, policy);
 }
 
@@ -135,7 +146,10 @@ function pathspecState(afterSeparator: boolean): CommitArgState {
 
 function isCommitPathspecOption(arg: string): boolean {
   return (
-    COMMIT_PATHSPEC_OPTIONS.has(arg) || arg.startsWith("--pathspec-from-file")
+    COMMIT_PATHSPEC_OPTIONS.has(arg) ||
+    arg.startsWith("--only=") ||
+    arg.startsWith("--include=") ||
+    arg.startsWith("--pathspec-from-file")
   );
 }
 
@@ -148,8 +162,10 @@ function inspectCommitShortOptions(arg: string, policy: CommitPolicy): void {
   const cluster = arg.slice(1);
   if (cluster.includes("a")) policy.commitAll = true;
   if (cluster.includes("n")) policy.noVerify = true;
-  if (cluster.includes("o") || cluster.includes("i"))
+  if (cluster.includes("o") || cluster.includes("i")) {
     policy.pathspecs.push(arg);
+    policy.pathspecOptions.push(arg);
+  }
 }
 
 function commitShortOptionConsumesNext(arg: string): boolean {

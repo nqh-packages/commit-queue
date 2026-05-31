@@ -12,6 +12,17 @@ const CONFIG_READ_ONLY_ARGS = new Set([
   "--name-only",
 ]);
 
+const CONFIG_MUTATION_ARGS = new Set([
+  "--add",
+  "--replace-all",
+  "--unset",
+  "--unset-all",
+  "--rename-section",
+  "--remove-section",
+  "--edit",
+  "-e",
+]);
+
 export function firstUnsafeConfigMutation(
   args: string[],
 ): UnsafeConfigMutation | null {
@@ -36,6 +47,7 @@ export function firstUnsafeConfigMutation(
 }
 
 export function isConfigReadOnly(args: string[]): boolean {
+  if (args.some((arg) => CONFIG_MUTATION_ARGS.has(arg))) return false;
   if (args.length === 1 && !args[0]?.startsWith("-")) return true;
   return args.some((arg) => CONFIG_READ_ONLY_ARGS.has(arg));
 }

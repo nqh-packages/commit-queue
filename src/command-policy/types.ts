@@ -3,6 +3,7 @@ export type CommitPolicy = {
   noVerify: boolean;
   amend: boolean;
   pathspecs: string[];
+  pathspecOptions: string[];
 };
 
 export type ReservedCommitTrailer = {

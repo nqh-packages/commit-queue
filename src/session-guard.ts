@@ -4,6 +4,7 @@ import { detectAgentIdentityFromEnv } from "./agent-adapters.js";
 import { errorPayload, fail } from "./errors.js";
 import { createCommitQueueSession } from "./session-bootstrap.js";
 import {
+  CorruptStateFileError,
   loadActiveSessionMapping,
   loadSession,
   sessionIndexPath,
@@ -32,7 +33,7 @@ export function requireSession(
     fail(sessionRequiredError(command, repo));
   }
 
-  const session = loadSession(id);
+  const session = loadSessionForCommand(command, repo, id);
   if (!session) {
     fail(sessionMissingError(command, repo, id));
   }
@@ -74,7 +75,7 @@ export function findCurrentActiveSession(
   const mapping = loadActiveSessionMapping(repo, agent);
   if (!mapping) return null;
 
-  const session = loadSession(mapping.sessionId);
+  const session = loadSessionForActiveMapping(mapping.sessionId);
   if (
     !session ||
     !activeSessionIsValid(session, mapping.sessionId, repo, agent)
@@ -93,7 +94,7 @@ function loadOrCreateActiveSession(
   const agent = detectAgentIdentity(command, repo);
   const mapping = loadActiveSessionMapping(repo, agent);
   if (mapping) {
-    const session = loadSession(mapping.sessionId);
+    const session = loadSessionForActiveMapping(mapping.sessionId);
     if (
       session &&
       activeSessionIsValid(session, mapping.sessionId, repo, agent)
@@ -103,6 +104,36 @@ function loadOrCreateActiveSession(
   }
 
   return createCommitQueueSession(realGit, repo, agent);
+}
+
+function loadSessionForCommand(
+  command: string,
+  repo: string,
+  id: string,
+): CommitQueueSession | null {
+  try {
+    return loadSession(id);
+  } catch (error) {
+    if (error instanceof CorruptStateFileError) {
+      fail(
+        sessionTamperedError(command, repo, id, {
+          field: "json",
+          reason: "invalid_json",
+          state_file: error.stateFile,
+        }),
+      );
+    }
+    throw error;
+  }
+}
+
+function loadSessionForActiveMapping(id: string): CommitQueueSession | null {
+  try {
+    return loadSession(id);
+  } catch (error) {
+    if (error instanceof CorruptStateFileError) return null;
+    throw error;
+  }
 }
 
 function activeSessionIsValid(

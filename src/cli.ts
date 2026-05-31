@@ -81,7 +81,7 @@ export function runProtectedGit(args: string[]): void {
 
   if (command === "commit") {
     assertNoFailedInstallRefresh(command, repo);
-    handleCommit(realGit, repo, invocation.commandArgs);
+    handleCommit(realGit, repo, invocation.commandArgs, invocation.globalArgs);
     return;
   }
 

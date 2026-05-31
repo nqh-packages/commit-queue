@@ -20,10 +20,21 @@ import { requireSession, sessionMissingError } from "../session-guard.js";
 import { loadSession, saveSession } from "../session-store.js";
 import type { CommitQueueSession } from "../types.js";
 
+type CommitExecution = {
+  realGit: string;
+  repo: string;
+  args: string[];
+  pathspecs: string[];
+  sessionId: string;
+  commandCwd: string;
+  globalArgs: string[];
+};
+
 export function handleCommit(
   realGit: string,
   repo: string,
   args: string[],
+  globalArgs: string[] = [],
 ): void {
   const policy = inspectCommitArgs(args);
   const session = requireSession("commit", repo, {
@@ -34,7 +45,15 @@ export function handleCommit(
   assertNoReservedAttributionTrailers(args, repo, session.id);
 
   withRepoLock(repo, () => {
-    commitWithFreshSession(realGit, repo, args, policy.pathspecs, session.id);
+    commitWithFreshSession({
+      realGit,
+      repo,
+      args,
+      pathspecs: policy.pathspecs,
+      sessionId: session.id,
+      commandCwd: process.cwd(),
+      globalArgs,
+    });
   });
 }
 
@@ -93,9 +112,7 @@ function assertNoBlockedPolicy(
     );
   }
 
-  const unsupportedPathspecOption = policy.pathspecs.find((pathspec) =>
-    pathspec.startsWith("-"),
-  );
+  const unsupportedPathspecOption = policy.pathspecOptions[0];
   if (unsupportedPathspecOption) {
     fail(
       errorPayload({
@@ -117,43 +134,41 @@ function assertNoBlockedPolicy(
   }
 }
 
-function commitWithFreshSession(
-  realGit: string,
-  repo: string,
-  args: string[],
-  pathspecs: string[],
-  sessionId: string,
-): void {
-  const freshSession = loadSession(sessionId);
+function commitWithFreshSession(execution: CommitExecution): void {
+  const freshSession = loadSession(execution.sessionId);
   if (!freshSession) {
-    fail(sessionMissingError("commit", repo, sessionId));
+    fail(sessionMissingError("commit", execution.repo, execution.sessionId));
   }
 
-  assertNoHeadDrift(realGit, repo, freshSession);
-  assertSessionHasExpectedStagedPaths(realGit, repo, freshSession);
-  assertNoFileDrift(realGit, repo, freshSession);
-  const selectedPaths = selectedCommitPaths(
-    realGit,
-    repo,
+  assertNoHeadDrift(execution.realGit, execution.repo, freshSession);
+  assertSessionHasExpectedStagedPaths(
+    execution.realGit,
+    execution.repo,
     freshSession,
-    pathspecs,
-    args,
   );
-  const agent = requireAgentIdentity("commit", repo, freshSession);
+  assertNoFileDrift(execution.realGit, execution.repo, freshSession);
+  const selectedPaths = selectedCommitPaths(execution, freshSession);
+  const agent = requireAgentIdentity("commit", execution.repo, freshSession);
   const commitIndexPath =
     selectedPaths === null
       ? freshSession.indexPath
-      : filteredCommitIndex(realGit, repo, freshSession, selectedPaths);
+      : filteredCommitIndex(
+          execution.realGit,
+          execution.repo,
+          freshSession,
+          selectedPaths,
+        );
 
   const commit = runGit(
-    realGit,
+    execution.realGit,
     [
+      ...execution.globalArgs,
       "commit",
-      ...commitArgsWithoutPathspecs(args),
+      ...commitArgsWithoutPathspecs(execution.args),
       ...attributionTrailerArgs(freshSession.id, agent),
     ],
     {
-      cwd: repo,
+      cwd: execution.commandCwd,
       env: { GIT_INDEX_FILE: commitIndexPath },
     },
   );
@@ -164,12 +179,18 @@ function commitWithFreshSession(
     exitWithResult(commit);
   }
 
-  runGit(realGit, ["reset", "-q", "--mixed", "HEAD"], { cwd: repo });
+  runGit(
+    execution.realGit,
+    [...execution.globalArgs, "reset", "-q", "--mixed", "HEAD"],
+    {
+      cwd: execution.commandCwd,
+    },
+  );
 
-  freshSession.head = currentHead(realGit, repo);
+  freshSession.head = currentHead(execution.realGit, execution.repo);
   freshSession.stagedPaths = recordStagedPaths(
-    realGit,
-    repo,
+    execution.realGit,
+    execution.repo,
     freshSession.indexPath,
   );
   saveSession(freshSession);
@@ -232,20 +253,12 @@ function attributionTrailerArgs(
 }
 
 function selectedCommitPaths(
-  realGit: string,
-  repo: string,
+  execution: CommitExecution,
   session: CommitQueueSession,
-  pathspecs: string[],
-  args: string[],
 ): Set<string> | null {
-  if (pathspecs.length === 0) return null;
+  if (execution.pathspecs.length === 0) return null;
 
-  const matchingPaths = matchingSessionPaths(
-    realGit,
-    repo,
-    session.indexPath,
-    pathspecs,
-  );
+  const matchingPaths = matchingSessionPaths(execution, session.indexPath);
   const stagedPaths = new Set(Object.keys(session.stagedPaths || {}));
   const selectedPaths = new Set(
     [...matchingPaths].filter((matchedPath) => stagedPaths.has(matchedPath)),
@@ -258,8 +271,8 @@ function selectedCommitPaths(
         detail:
           "Commit path arguments must match paths already staged in this commit-queue session.",
         context: {
-          ...commitContext(args, repo, session.id),
-          pathspecs,
+          ...commitContext(execution.args, execution.repo, session.id),
+          pathspecs: execution.pathspecs,
           staged_paths: Object.keys(session.stagedPaths || {}).sort(),
         },
         suggestions: [
@@ -275,16 +288,21 @@ function selectedCommitPaths(
 }
 
 function matchingSessionPaths(
-  realGit: string,
-  repo: string,
+  execution: CommitExecution,
   indexPath: string,
-  pathspecs: string[],
 ): Set<string> {
   const result = runGit(
-    realGit,
-    ["ls-files", "--full-name", "--cached", "--", ...pathspecs],
+    execution.realGit,
+    [
+      ...execution.globalArgs,
+      "ls-files",
+      "--full-name",
+      "--cached",
+      "--",
+      ...execution.pathspecs,
+    ],
     {
-      cwd: repo,
+      cwd: execution.commandCwd,
       env: { GIT_INDEX_FILE: indexPath },
     },
   );
