@@ -26,6 +26,7 @@ const installer = path.join(repoRoot, "scripts/install-local.js");
 test("local installer wires commit-queue into common shell startup files", () => {
   const home = mkdtempSync(path.join(tmpdir(), "commit-queue-install-"));
   try {
+    writeFileSync(path.join(repoRoot, "dist", "stale-runtime.js"), "stale\n");
     const result = spawnSync(process.execPath, [installer], {
       cwd: repoRoot,
       env: {
@@ -47,6 +48,10 @@ test("local installer wires commit-queue into common shell startup files", () =>
     assert.equal(
       existsSync(path.join(home, ".commit-queue", "dist", "cli.js")),
       true,
+    );
+    assert.equal(
+      existsSync(path.join(home, ".commit-queue", "dist", "stale-runtime.js")),
+      false,
     );
     assert.equal(
       existsSync(path.join(home, ".commit-queue", "src", "cli.js")),
@@ -75,6 +80,38 @@ test("local installer wires commit-queue into common shell startup files", () =>
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("build removes stale dist artifacts before compiling runtime", () => {
+  const staleFile = path.join(repoRoot, "dist", "stale-runtime.js");
+  writeFileSync(staleFile, "stale\n");
+
+  const build = spawnSync("npm", ["run", "build", "--silent"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+
+  assert.equal(build.status, 0, build.stderr);
+  assert.equal(existsSync(staleFile), false);
+  assert.equal(existsSync(path.join(repoRoot, "dist", "cli.js")), true);
+});
+
+test("package dry-run excludes stale dist artifacts", () => {
+  const staleFile = path.join(repoRoot, "dist", "stale-runtime.js");
+  writeFileSync(staleFile, "stale\n");
+
+  const pack = spawnSync("npm", ["pack", "--dry-run", "--json"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+
+  assert.equal(pack.status, 0, pack.stderr);
+  const [result] = JSON.parse(pack.stdout);
+  const files = new Set(result.files.map((file) => file.path));
+  assert.equal(files.has("bin/git"), true);
+  assert.equal(files.has("bin/hgit"), true);
+  assert.equal(files.has("dist/cli.js"), true);
+  assert.equal(files.has("dist/stale-runtime.js"), false);
 });
 
 test("local installer keeps commit-queue first without duplicating PATH entries", () => {

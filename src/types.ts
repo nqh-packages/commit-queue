@@ -17,6 +17,8 @@ export type Invocation = {
 
 export type StagedPath = {
   blob: string | null;
+  mode: string | null;
+  status: "added" | "modified" | "deleted";
   addedAt: string;
 };
 

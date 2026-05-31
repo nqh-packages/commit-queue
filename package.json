@@ -15,7 +15,8 @@
     "hgit": "./bin/hgit"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "build": "npm run clean --silent && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "qlty": "scripts/run-qlty.sh check --all --no-progress --summary",
     "qlty:smells": "node scripts/run-qlty-smells-strict.mjs",
@@ -23,9 +24,9 @@
     "prepare": "npm run build",
     "install:local": "node scripts/install-local.js",
     "pretest": "npm run build",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
     "pretest:coverage": "npm run build",
-    "test:coverage": "node --test --experimental-test-coverage test/*.test.js"
+    "test:coverage": "node --test --test-concurrency=1 --experimental-test-coverage test/*.test.js"
   },
   "engines": {
     "node": ">=22"

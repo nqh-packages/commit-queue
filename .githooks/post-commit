@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+real_git="${COMMIT_QUEUE_REAL_GIT:-/usr/bin/git}"
+repo_root="$("$real_git" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$repo_root"
 
 exec node scripts/refresh-installed-runtime.js --hook post-commit

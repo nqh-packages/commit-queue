@@ -8,7 +8,7 @@ import {
   listStagedPaths,
   resolveGitPathBase,
   runGit,
-  stagedBlob,
+  stagedEntry,
 } from "../git-runtime.js";
 import { requireSession } from "../session-guard.js";
 import { saveSession } from "../session-store.js";
@@ -142,9 +142,9 @@ function recordStagedPaths(
 ): Record<string, StagedPath> {
   const staged: Record<string, StagedPath> = {};
   for (const relativePath of listStagedPaths(realGit, repo, indexPath)) {
-    const blob = stagedBlob(realGit, repo, indexPath, relativePath);
+    const entry = stagedEntry(realGit, repo, indexPath, relativePath);
     staged[relativePath] = {
-      blob,
+      ...entry,
       addedAt: new Date().toISOString(),
     };
   }

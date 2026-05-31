@@ -10,10 +10,11 @@ import { errorPayload, exitWithResult, fail } from "../errors.js";
 import {
   currentHead,
   currentHeadRef,
+  listStagedPathsForPathspecs,
   listStagedPaths,
   runGit,
-  stagedBlob,
-  worktreeBlob,
+  stagedEntry,
+  worktreeEntry,
 } from "../git-runtime.js";
 import { withRepoLock } from "../repo-lock.js";
 import { requireSession, sessionMissingError } from "../session-guard.js";
@@ -291,28 +292,14 @@ function matchingSessionPaths(
   execution: CommitExecution,
   indexPath: string,
 ): Set<string> {
-  const result = runGit(
+  const paths = listStagedPathsForPathspecs(
     execution.realGit,
-    [
-      ...execution.globalArgs,
-      "ls-files",
-      "--full-name",
-      "--cached",
-      "--",
-      ...execution.pathspecs,
-    ],
-    {
-      cwd: execution.commandCwd,
-      env: { GIT_INDEX_FILE: indexPath },
-    },
+    execution.repo,
+    indexPath,
+    execution.pathspecs,
+    { cwd: execution.commandCwd, globalArgs: execution.globalArgs },
   );
-  if (result.status !== 0) return new Set();
-  return new Set(
-    result.stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
+  return new Set(paths);
 }
 
 function filteredCommitIndex(
@@ -422,8 +409,9 @@ function recordStagedPaths(
 ): CommitQueueSession["stagedPaths"] {
   const staged: CommitQueueSession["stagedPaths"] = {};
   for (const relativePath of listStagedPaths(realGit, repo, indexPath)) {
+    const entry = stagedEntry(realGit, repo, indexPath, relativePath);
     staged[relativePath] = {
-      blob: stagedBlob(realGit, repo, indexPath, relativePath),
+      ...entry,
       addedAt: new Date().toISOString(),
     };
   }
@@ -538,8 +526,12 @@ function assertNoFileDrift(
     session.indexPath,
   )) {
     const stagedPath = session.stagedPaths[relativePath];
-    const actual = worktreeBlob(realGit, repo, relativePath);
-    if (!stagedPath || actual !== stagedPath.blob) {
+    const actual = worktreeEntry(realGit, repo, relativePath);
+    if (
+      !stagedPath ||
+      actual.blob !== stagedPath.blob ||
+      actual.mode !== stagedPath.mode
+    ) {
       fail(
         errorPayload({
           code: "COMMIT_QUEUE_FILE_DRIFT",
@@ -551,7 +543,9 @@ function assertNoFileDrift(
             session: session.id,
             path: relativePath,
             expected_blob: stagedPath?.blob ?? null,
-            actual_blob: actual,
+            actual_blob: actual.blob,
+            expected_mode: stagedPath?.mode ?? null,
+            actual_mode: actual.mode,
           },
           suggestions: [
             `Run \`git add ${relativePath}\` again if this content is intentional.`,
