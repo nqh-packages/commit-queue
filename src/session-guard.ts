@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { detectAgentIdentity } from "./agent-identity.js";
 import { detectAgentIdentityFromEnv } from "./agent-adapters.js";
 import { errorPayload, fail } from "./errors.js";
+import { currentHead } from "./git-runtime.js";
 import { createCommitQueueSession } from "./session-bootstrap.js";
 import {
   CorruptStateFileError,
@@ -67,6 +68,7 @@ export function requireSession(
 export function findCurrentActiveSession(
   command: string,
   repo: string,
+  realGit?: string,
 ): CommitQueueSession | null {
   const detection = detectAgentIdentityFromEnv();
   if (detection.status !== "detected") return null;
@@ -78,7 +80,7 @@ export function findCurrentActiveSession(
   const session = loadSessionForActiveMapping(mapping.sessionId);
   if (
     !session ||
-    !activeSessionIsValid(session, mapping.sessionId, repo, agent)
+    !activeSessionIsValid(session, mapping.sessionId, repo, agent, realGit)
   ) {
     return null;
   }
@@ -97,7 +99,7 @@ function loadOrCreateActiveSession(
     const session = loadSessionForActiveMapping(mapping.sessionId);
     if (
       session &&
-      activeSessionIsValid(session, mapping.sessionId, repo, agent)
+      activeSessionIsValid(session, mapping.sessionId, repo, agent, realGit)
     ) {
       return session;
     }
@@ -141,13 +143,31 @@ function activeSessionIsValid(
   id: string,
   repo: string,
   agent: AgentIdentity,
+  realGit?: string,
+): boolean {
+  if (sessionTamperReason(session, id)) return false;
+  if (session.repo !== repo) return false;
+  if (!sessionAgentMatches(session, agent)) return false;
+  return sessionHeadMatchesCurrentHead(session, realGit, repo);
+}
+
+function sessionAgentMatches(
+  session: CommitQueueSession,
+  agent: AgentIdentity,
 ): boolean {
   return (
-    !sessionTamperReason(session, id) &&
-    session.repo === repo &&
     session.agent?.name === agent.name &&
     session.agent?.sessionId === agent.sessionId
   );
+}
+
+function sessionHeadMatchesCurrentHead(
+  session: CommitQueueSession,
+  realGit: string | undefined,
+  repo: string,
+): boolean {
+  if (!realGit) return true;
+  return session.head === currentHead(realGit, repo);
 }
 
 function sessionRequiredError(command: string, repo: string): ErrorPayload {

@@ -509,6 +509,63 @@ test("auto-bootstrap replaces stale active mappings", () => {
   }
 });
 
+test("auto-bootstrap replaces active mappings whose session head drifted", () => {
+  const fixture = createFixture();
+  try {
+    const env = defaultAgentEnv();
+    writeRepoFile(fixture.repo, "src/a.ts", "export const a = 1;\n");
+    assert.equal(
+      runCommitQueue(fixture.repo, ["add", "src/a.ts"], {
+        state: fixture.state,
+        env,
+      }).status,
+      0,
+    );
+
+    const activeMappingPath = path.join(
+      fixture.state,
+      "active-sessions",
+      readdirSync(path.join(fixture.state, "active-sessions"))[0],
+    );
+    const staleMapping = JSON.parse(readFileSync(activeMappingPath, "utf8"));
+
+    writeRepoFile(fixture.repo, "src/b.ts", "export const b = 1;\n");
+    assert.equal(runRealGit(fixture.repo, ["add", "src/b.ts"]).status, 0);
+    assert.equal(
+      runRealGit(fixture.repo, ["commit", "-m", "test: advance head"]).status,
+      0,
+    );
+
+    const status = runCommitQueue(fixture.repo, ["status", "--short"], {
+      state: fixture.state,
+      env,
+    });
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(status.stdout.trim(), "?? src/a.ts");
+    assert.doesNotMatch(status.stdout, /^A  src\/a\.ts/m);
+    assert.doesNotMatch(status.stdout, /^D  src\/b\.ts/m);
+
+    writeRepoFile(fixture.repo, "src/c.ts", "export const c = 1;\n");
+    const add = runCommitQueue(fixture.repo, ["add", "src/c.ts"], {
+      state: fixture.state,
+      env,
+    });
+    assert.equal(add.status, 0, add.stderr);
+
+    const freshMapping = JSON.parse(readFileSync(activeMappingPath, "utf8"));
+    assert.notEqual(freshMapping.sessionId, staleMapping.sessionId);
+    const freshSession = JSON.parse(
+      readFileSync(
+        path.join(fixture.state, "sessions", `${freshMapping.sessionId}.json`),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(Object.keys(freshSession.stagedPaths), ["src/c.ts"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("explicit COMMIT_QUEUE_ID takes priority over active auto-bootstrap mapping", () => {
   const fixture = createFixture();
   try {

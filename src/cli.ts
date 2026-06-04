@@ -86,7 +86,7 @@ export function runProtectedGit(args: string[]): void {
     return;
   }
 
-  const env = indexAwareReadEnv(command, repo);
+  const env = indexAwareReadEnv(realGit, command, repo);
   if (env) {
     exitWithResult(runGit(realGit, args, { env }));
   }
@@ -176,6 +176,7 @@ function blockHistoryRewrite(repo: string, args: string[]): void {
 }
 
 function indexAwareReadEnv(
+  realGit: string,
   command: string,
   repo: string,
 ): NodeJS.ProcessEnv | undefined {
@@ -183,7 +184,7 @@ function indexAwareReadEnv(
 
   const session = process.env.COMMIT_QUEUE_ID
     ? requireSession(command, repo)
-    : findCurrentActiveSession(command, repo);
+    : findCurrentActiveSession(command, repo, realGit);
   if (!session) return undefined;
 
   return { GIT_INDEX_FILE: session.indexPath };
